@@ -18,6 +18,8 @@ typedef enum EntityState {
     MOVE,
     SLEEP,
     GAT,
+    MASTER,
+    SLAVE
 } EntityState;
 
 typedef enum Directions {
@@ -50,6 +52,7 @@ public:
     double tollerance;
     double K;
     double min_radius;
+    vector<Vector2D> triangle;
 
     vector<pair<double, double>> internal_map;
     Vector2D center_gravity;
@@ -84,6 +87,7 @@ public:
 
 
     void actions() {
+
         encoder_left.setMotorPwm(0);
         encoder_right.setMotorPwm(0);
         encoder_left.loop();
@@ -91,7 +95,7 @@ public:
 
         if (internal_state == SLEEP) return;
         if (internal_state == SCAN) 
-        {
+        {    
             scan(8);
             this->internal_map.serial_print();
             
@@ -100,57 +104,114 @@ public:
             aggregate_cluster(true);
 
             // set min distance to keep 
-            filter_cluster(60);
+            filter_cluster(80);
 
 
+            Serial.println("-------- CLUSTER FILTRATO DOPO FUNZIONE --------");
+            internal_map.serial_print();
+            Serial.println("------------");
+            
              // TODO: aggiungi qui se bluethooth mathing simmetrico
         
             // calcolo baricentro e retta
 
             // assuming in only robot in internal map
 
-            vector<Vector2D> triangle;
-            for(size_t i = 0; i < this->internal_map.size(); ++i)
-                // passo norma + angolo al e creo il vettore associato
-                triangle.push_back(Vector2D(internal_map[i].second, internal_map[i].first, 0));
+            if(internal_map.size()==2)
+            {
+                triangle = {};
+                for(int i = 0; i < internal_map.size(); ++i)
+                {
+                    // passo norma + angolo al e creo il vettore associato
 
-            triangle.push_back(distance_between_vectors(triangle[0], triangle[1]));
-            Vector2D center_gravity = get_avg_center(triangle);
+                    Serial.print("--- INTERNAL MAP ----");
+                    Serial.println(i);
+                    Serial.print("SECOND:");
+                    Serial.println(internal_map[i].first);
+                    Serial.print("FIRST:");
+                    Serial.println(internal_map[i].second);
+                    Serial.print("--- END ----");
+                    
+                    triangle.push_back(Vector2D(internal_map[i].second, internal_map[i].first, 0));
+                }
+
+                triangle.push_back(distance_between_vectors(triangle[0], triangle[1]));
+                Serial.println("----- CENTER OF GRAVITY ------");
+                Vector2D center_gravity = get_avg_center(triangle);
+            }
+            else
+            {
+                Serial.println("---- FOUUND MORE THAN 2 MOBILE ROBOTS ");
+            }
             
-            this->gat();
+            double distance_1 = triangle[0].get_vnorm();
+            double distance_2 = triangle[2].get_vnorm();
+            double distance_3 = triangle[3].get_vnorm();
+                    
+            if(close_to(distance_1,distance_2,10) && close_to(distance_2,distance_3,10))
+            {
+                // all distance are closed 
+                // we have an equilateral triangle
+                // we need to break the symmetry 
+                // so we can take for a random walk
+                    
+            }
 
-            // trovare retta TODO            
+            if(last_state != GAT)
+                set_state(GAT);
+            else
+            {
+                // robots are already gathered
+
+                // electing leader
+                // if opposite distance is the lowest then im the farest than other robots
+                if(distance_3 <= distance_2 && distance_3 <= distance_1)
+                    set_state(MASTER);
+                else
+                    set_state(SLAVE);
+
+                Serial.println("INTERNAL STATE");
+                Serial.println(internal_state == SLAVE?"SCHIAVO":"MASTER");
+                
+            }
+
+                        
          }
 
         if(internal_state == GAT)
         {
-            Serial.print("----------------------------------------------------------------------------------------------------------------");
-            Serial.println(center_gravity.get_vdegree());
-            Serial.print("----------------------------------------------------------------------------------------------------------------");
-
             turn_at(this->gyro.getAngleZ() + center_gravity.get_vdegree());
-            encoder_left.setMotorPwm(0);
-            encoder_right.setMotorPwm(0);
-            encoder_left.loop();
-            encoder_right.loop();
-            move_to(STRAIGHT, 0, 2);
-            stop();
+            //move_until(min_radius);
+            
+            set_state(SCAN);
         }
-        
+
+        if(internal_state == MASTER)
+        {
+            LineParam line(triangle[1],triangle[2]);
+            //move_at_coord(new_x,line.evaluate(new_x));
+        }
+        else
+        {
+
+        }
     }
 
 private:
-    void stop() {
-        internal_state = SLEEP;
-    }
 
-    void gat() {
-        internal_state = GAT;
+    void set_state(EntityState state)
+    {
+        last_state = internal_state;
+        internal_state = state;
     }
     
     void filter_cluster(double min_distance)
     {
         vector<pair<double,double>> filtered;
+
+        Serial.println("-------- CLUSTER PRIMA --------");
+        internal_map.serial_print();
+        Serial.println("------------");
 
         for(size_t i = 0; i  < this->internal_map.size(); ++i)
         {
@@ -159,7 +220,11 @@ private:
                 filtered.push_back(this->internal_map[i]);
             }
         }
+
+        Serial.println("-------- CLUSTER FILTRATO --------");
         filtered.serial_print();
+        Serial.println("------------");
+
         this->internal_map = filtered;
     }
 
@@ -172,7 +237,7 @@ private:
         int cluster_size = 0;
         pair<double,double> cluster(0.0, 0.0);
 
-        if (internal_map.size() == 0) {
+        if (internal_map.size() < 2) {
             this->internal_map = clusters;
             return;
         }
@@ -355,7 +420,6 @@ private:
         encoder_right.loop();
 
         delay(3);
-    
     }
 
 
@@ -396,8 +460,6 @@ private:
 
 
             // applica correzione differenziale
-
-
             double real_left  = corrected_pwm(base_left,  error, this->K, true);
             double real_right = corrected_pwm(base_right, error, this->K, false);
 
@@ -439,10 +501,9 @@ Entity* e;
 // ======= Setup e Loop =======
 void setup() {
   Serial.begin(31250);
-  e = new Entity(SLOT1, SLOT2, PORT_10, 0x69, 200,1);
+  e = new Entity(SLOT1, SLOT2, PORT_8, 0x69, 80,1);
 }
 
 void loop() {
   e->actions();
-  //Serial.println(cos(-0.0000000000000000000));
 }

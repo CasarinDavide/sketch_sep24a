@@ -55,6 +55,42 @@ namespace Algo{
         Serial.println("Fine!! :> ");
       } 
 
+      vector& operator=(const vector& other) {
+        if (this != &other) {
+            delete[] data;
+            m_size = other.m_size;
+            m_capacity = other.m_capacity;
+            data = new T[m_capacity];
+            for (uint64_t i = 0; i < m_size; i++) {
+                data[i] = other.data[i];
+            }
+        }
+        return *this;
+    }
+
+
+    vector(vector&& other) noexcept
+        : data(other.data), m_size(other.m_size), m_capacity(other.m_capacity) {
+        other.data = nullptr;
+        other.m_size = 0;
+        other.m_capacity = 0;
+    }
+
+    vector& operator=(vector&& other) {
+        if (this != &other) {
+            delete[] data;
+            data = other.data;
+            m_size = other.m_size;
+            m_capacity = other.m_capacity;
+            other.data = nullptr;
+            other.m_size = 0;
+            other.m_capacity = 0;
+        }
+        return *this;
+    }
+
+
+
   private:
       T* data;
       uint64_t m_size;

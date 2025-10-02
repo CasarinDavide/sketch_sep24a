@@ -46,11 +46,19 @@ public:
       y(sin(to_radians(alpha)) * radius),
       v_norm(radius), v_degree(alpha) {
         
-        Serial.println("INCOERENTE");
-        Serial.println(alpha);
+        Serial.println("---INCOERENTE----");
         Serial.println(to_radians(alpha));
+        Serial.print("Distance:");
+        Serial.println(radius);
+        Serial.print("Alpha:");
+        Serial.println(alpha);
+        Serial.print("COSENO");
+        Serial.println(cos(to_radians(alpha)) * radius);
+        Serial.print("X:");
         Serial.println(this->x);
+        Serial.print("Y:");
         Serial.println(this->y);
+        Serial.println("-------------");
         
       }
 
@@ -82,6 +90,27 @@ public:
   }
 };
 
+class LineParam {
+    Vector2D origin;// punto iniziale A
+    Vector2D dir;  // vettore direzione B-A
+
+  public:
+      LineParam(const Vector2D& origin, const Vector2D& direction)
+          : origin(origin), dir(direction) {}
+
+      Vector2D evaluate(double t) const {
+          return origin + Vector2D(dir.x * t, dir.y * t);
+      }
+
+      double slope() const {
+          return dir.y / dir.x;
+      }
+
+      double intercept() const {
+          return origin.y - slope() * origin.x;
+      }
+};
+
 double to_radians(double degree) {
   return degree * (PI / 180.0f);
 }
@@ -106,7 +135,12 @@ double opposite_angle(double adj_1, double adj_2, double opposite) {
   return acos(((adj_1 * adj_1) + (adj_2 * adj_2) - (opposite * opposite)) / (2 * adj_1 * adj_2));
 }
 
-vector<double> all_angles(double a, double b, double c) {
+/* returns : 
+    [0] opposite angle bewteen a,b
+    [1] opposite angle bewteen b,c
+    [2] opposite angle bewteen c,a
+*/
+vector<double> get_all_angles(double a, double b, double c) {
   vector<double> r;
 
   r.push_back(opposite_angle(a, b, c));
@@ -118,23 +152,42 @@ vector<double> all_angles(double a, double b, double c) {
 
 
   Vector2D get_avg_center(vector<Vector2D> vectors) {
-    float avg_x, avg_y;
+    double avg_x = 0; 
+    double avg_y = 0;
     int size = vectors.size();
     for (size_t i = 0; i < size; ++i) {
       avg_x += vectors[i].x;
       avg_y += vectors[i].y;
 
-       Serial.print("avg_x");
-      Serial.print(vectors[i].x);
-      Serial.print("avg_y");
-      Serial.print(vectors[i].y);
-      Serial.print(size);
+      Serial.println("------------");
+      Serial.print("x");
+      Serial.print(i);
+      Serial.print(":");
+      Serial.println(vectors[i].x);
+      Serial.print("y");
+      Serial.print(i);
+      Serial.print(":");
+      Serial.println(vectors[i].y);
+      Serial.println("------------");
     }
 
+    Serial.println("------------");
+    Serial.print("avg_x");
+    Serial.println(avg_x);
+    Serial.print("avg_y");
+    Serial.println(avg_y);
+    Serial.print("size:");
+    Serial.println(size);
+    Serial.println("------------");
    
-    
     return Vector2D(avg_x / size, avg_y / size);
   }
-}
+
+  // if two numbers are closed return true 
+  bool close_to(double a, double c, double e_tol)
+  {
+    return abs(a-c) < e_tol;
+  }
+
 
 #endif  // LINALG_H
