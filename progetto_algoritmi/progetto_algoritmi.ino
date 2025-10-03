@@ -14,10 +14,14 @@ void setup() {
     Serial.begin(31250);
 
     // Inizializzazione dell’entità con i parametri hardware
-    e = new Entity(SLOT1, SLOT2, PORT_8, 0x69, 80, 1);
+    e = new Entity(SLOT1, SLOT2, PORT_10, 0x69, 180, 1);
+    e->set_to_zeroZ();
 }
 
 // ======= Loop =======
 void loop() {
-  e->actions();
+  //Serial.println(e->get_Z());
+  //e->turn_at(360-45);
+  //e->delay(5);
+    e->turn_at(360);
 }

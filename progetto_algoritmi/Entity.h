@@ -8,6 +8,7 @@
 using namespace LinAlg;
 using namespace Algo; 
 
+
 // ======= Enum =======
 typedef enum EntityState {
     SCAN,
@@ -60,6 +61,9 @@ public:
     vector<pair<double, double>> internal_map;
     Vector2D center_gravity;
 
+    // z_axis_bf_scan before scan
+    double z_axis_bf_scan;
+
     // Costruttori
     Entity();
     Entity(uint16_t enc_l_port,
@@ -73,17 +77,19 @@ public:
     void actions();
     void move_to(Directions dir, double keep_angle, double seconds);
     void turn_at(double angle);
+    // Utilità
+    void delay(double seconds);
+    double get_Z();
+    void set_to_zeroZ();
 
 private:
     // Gestione stati
     void set_state(EntityState state);
-
     // Algoritmi di clustering e filtraggio
     void filter_cluster(double min_distance);
     void aggregate_cluster(bool include_last = false);
 
-    // Utilità
-    void delay(double seconds);
+    
     void scan(int sample_measurement);
     double get_avg_distance(int n_sample);
 
@@ -92,4 +98,6 @@ private:
     double getPwmForWheel(double pwm, Directions dir, WheelSide wheel);
     double corrected_pwm(double base_pwm, double error, double K, bool isLeft);
     double Entity::normalizeAngle(double angle);
+    template <typename Func>
+    void move_until(Func stopping_criteria, Directions dir = STRAIGHT, double keep_angle = 0);
 };
