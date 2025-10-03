@@ -86,34 +86,7 @@ public:
         }
         return *this;
     }
-
-
-
-  private:
-      T* data;
-      uint64_t m_size;
-      uint64_t m_capacity;
-
-    vector(vector&& other) noexcept
-        : data(other.data), m_size(other.m_size), m_capacity(other.m_capacity) {
-        other.data = nullptr;
-        other.m_size = 0;
-        other.m_capacity = 0;
-    }
-
-    vector& operator=(vector&& other) {
-        if (this != &other) {
-            delete[] data;
-            data = other.data;
-            m_size = other.m_size;
-            m_capacity = other.m_capacity;
-            other.data = nullptr;
-            other.m_size = 0;
-            other.m_capacity = 0;
-        }
-        return *this;
-    }
-
+    
 private:
     T* data;
     uint64_t m_size;
