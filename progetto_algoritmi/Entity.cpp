@@ -19,11 +19,12 @@ inline double pwm_to_speed(double pwm_value) {
 Entity::Entity() {}
 
 Entity::Entity(uint16_t enc_l_port, uint16_t enc_r_port, uint16_t ultra_port,
-               uint16_t gyro_p, uint16_t _pwm, uint16_t K, uint16_t _id)
+               uint16_t gyro_p, uint16_t _vel, uint16_t _pwm, uint16_t K, uint16_t _id)
   : encoder_left(enc_l_port),
     encoder_right(enc_r_port),
     ultra(ultra_port),
     gyro(0, gyro_p),
+    vel(_vel),
     pwm(_pwm),
     encoder_left_port(enc_l_port),
     encoder_right_port(enc_r_port),
@@ -36,6 +37,7 @@ Entity::Entity(uint16_t enc_l_port, uint16_t enc_r_port, uint16_t ultra_port,
   // === Configurazione timer PWM ===
   TCCR1A = _BV(WGM10);
   TCCR1B = _BV(CS11) | _BV(WGM12);
+
   TCCR2A = _BV(WGM21) | _BV(WGM20);
   TCCR2B = _BV(CS21);
 
@@ -49,13 +51,8 @@ Entity::Entity(uint16_t enc_l_port, uint16_t enc_r_port, uint16_t ultra_port,
 
   // === Collegamento interrupt encoder ===
 
-  attachInterrupt(encoder_left.getIntNum(), Entity::isr_encoder_left_A, RISING);
-
-  attachInterrupt(encoder_left.getIntNum() + 1, Entity::isr_encoder_left_B, RISING);
-
-  attachInterrupt(encoder_right.getIntNum(), Entity::isr_encoder_right_A, RISING);
-
-  attachInterrupt(encoder_right.getIntNum() + 1, Entity::isr_encoder_right_B, RISING);
+  attachInterrupt(encoder_left.getIntNum(), isr_encoder_left, RISING);
+  attachInterrupt(encoder_right.getIntNum(), isr_encoder_right, RISING);
 
   // === Stati iniziali ===
   last_state = NULL;
@@ -78,20 +75,27 @@ void Entity::move_at_coord(const Vector2D& v) {
 }
 
 
-static void Entity::isr_encoder_left_A() {
-  if (instance) instance->encoder_left.pulsePosPlus();
+static void Entity::isr_encoder_left() {
+  if(digitalRead(instance->encoder_left.getPortB()) == 0)
+  {
+    instance->encoder_left.pulsePosMinus();
+  }
+  else
+  {
+    instance->encoder_left.pulsePosPlus();
+  }
 }
 
-static void Entity::isr_encoder_left_B() {
-  if (instance) instance->encoder_left.pulsePosMinus();
-}
+static void Entity::isr_encoder_right() {
+  if(digitalRead(instance->encoder_right.getPortB()) == 0)
+  {
+    instance->encoder_right.pulsePosMinus();
+  }
+  else
+  {
+    instance->encoder_right.pulsePosPlus();
+  }
 
-static void Entity::isr_encoder_right_A() {
-  if (instance) instance->encoder_right.pulsePosPlus();
-}
-
-static void Entity::isr_encoder_right_B() {
-  if (instance) instance->encoder_right.pulsePosMinus();
 }
 
 double Entity::get_velocity(WheelSide wheel) {
@@ -102,8 +106,8 @@ double Entity::get_velocity(WheelSide wheel) {
 }
 
 void Entity::actions() {
-  encoder_left.setMotorPwm(0);
-  encoder_right.setMotorPwm(0);
+  encoder_left.runSpeed(0);
+  encoder_right.runSpeed(0);
   encoder_left.loop();
   encoder_right.loop();
 
@@ -117,7 +121,7 @@ void Entity::actions() {
     aggregate_cluster();
 
     // Set min distance to keep
-    filter_cluster(62);
+    filter_cluster(110);
 
     Serial.println("-------- CLUSTER FILTRATO DOPO FUNZIONE --------");
     internal_map.serial_print();
@@ -204,9 +208,6 @@ void Entity::actions() {
     Serial.print("ANGOLO BARICENTRO NON NORMALIZZATO ");
     Serial.println(bari_angle);
 
-
-    bari_angle = bari_angle < 0 ? 360 + bari_angle : bari_angle;
-
     Serial.print("ANGOLO BARICENTRO");
     Serial.println(bari_angle);
 
@@ -214,8 +215,6 @@ void Entity::actions() {
     turn_at(bari_angle);
     auto until_min_raius = [this]() {
       double current_dist = ultra.distanceCm();
-      Serial.print("DISTANZA ATTUALE");
-      Serial.println(current_dist);
       return current_dist <= min_radius;
     };
 
@@ -291,7 +290,7 @@ void Entity::actions() {
 
       /*
                 2) fare funzione dove prendi in considerazione una distanza minima
-                    e raggiunta la distanza minima setta i pwm a 0, dopo conta quanti secondi sta in quella distanza
+                    e raggiunta la distanza minima setta i vel a 0, dopo conta quanti secondi sta in quella distanza
                     distanza da capire quale dare, possibile hint è norma di direction!!!!! :>
                      
             
@@ -313,62 +312,28 @@ double Entity::get_Z() {
 }
 
 void Entity::move_to(Directions dir, double keep_angle, double seconds) {
-
-  reset_velocity_params();
-
-  double base_left = getPwmForWheel(this->pwm, dir, LEFT_WHEEL);
-  double base_right = getPwmForWheel(this->pwm, dir, RIGHT_WHEEL);
+  double vel_left = getPwmForWheel(this->vel, dir, LEFT_WHEEL);
+  double vel_right = getPwmForWheel(this->vel, dir, RIGHT_WHEEL);
   unsigned long endTime = millis() + (unsigned long)(seconds * 1000);
 
-  // Inizializza il giroscopio
-  this->gyro.update();
-  double start_angle = normalizeAngle(this->gyro.getAngleZ());
-  double target_angle = normalizeAngle(start_angle + keep_angle);
-
-  // Parametri PID per il controllo direzionale
-  double Kp = 2.0;
-  double Ki = 0.0;
-  double Kd = 0.3;
-
-  double integral = 0.0;
-  double last_error = 0.0;
-  unsigned long last_time = millis();
-  double pwm_left = base_left;
-  double pwm_right = base_right;
-  
   while (millis() < endTime) {
-    this->gyro.update();
+    encoder_left.runSpeed(vel_right);
+    encoder_right.runSpeed(vel_right);
 
-    // Calcolo dt in secondi
-    unsigned long now = millis();
-    double dt = (now - last_time) / 1000.0;
-    last_time = now;
-
-    
-    // Bilancia le ruote rispetto alle velocità reali
-    // teniamo la velocità fissa ad un certo valore
-    correct_pwm_velocity_target(pwm_left, pwm_right, dt);
-
-    
-    // Applica PWM ai motori
-    // encoder_left.setMotorPwm(pwm_left);
-    // encoder_right.setMotorPwm(pwm_right);
-    encoder_left.runSpeed(60);
-    encoder_right.runSpeed(60);
+    Serial.print("vL: ");
+    Serial.println(get_velocity(LEFT_WHEEL));
+    Serial.print("vR: ");
+    Serial.println(get_velocity(RIGHT_WHEEL));
 
     encoder_left.loop();
     encoder_right.loop();
-
   }
 
   // Arresta i motori
-  encoder_left.setMotorPwm(0);
-  encoder_right.setMotorPwm(0);
+  encoder_left.runSpeed(0);
+  encoder_right.runSpeed(0);
   encoder_left.loop();
   encoder_right.loop();
-
-  delay(3);
-
 }
 
 
@@ -399,7 +364,7 @@ void Entity::filter_cluster(double min_distance) {
 }
 
 void Entity::aggregate_cluster() {
-  double eps_tol = 5;  // tolleranza distanza cluster
+  double eps_tol = 10;  // tolleranza distanza cluster
   vector<pair<double, double>> clusters;
 
   if (internal_map.size() == 0) {
@@ -449,15 +414,13 @@ void Entity::scan(int sample_measurement) {
 
   if (z_axis_bf_scan < 0) z_axis_bf_scan += 360;
 
-  Serial.read();
   double angle = 0;
   double delta_angle = 360 / sample_measurement;
   int i = 0;
   do {
-    double distance = get_avg_distance(1);
+    double distance = get_avg_distance(5);
     internal_map.push_back({ angle, distance });
     angle = angle + delta_angle;
-
     turn_at(delta_angle);
     // move_to(STRAIGHT,0,3);
     i++;
@@ -473,8 +436,8 @@ double Entity::get_avg_distance(int n_sample) {
   return mean_distance / n_sample;
 }
 
-double Entity::getPwmForWheel(double pwm, Directions dir, WheelSide wheel) {
-  double p = pwm;
+double Entity::getPwmForWheel(double vel, Directions dir, WheelSide wheel) {
+  double p = vel;
 
   switch (dir) {
     case STRAIGHT: return (wheel == LEFT_WHEEL) ? -p : p;
@@ -487,8 +450,8 @@ double Entity::getPwmForWheel(double pwm, Directions dir, WheelSide wheel) {
 }
 
 
-/*
-void Entity::turn_at_old(double angle) {
+
+void Entity::turn_at(double angle) {
   double base_left = getPwmForWheel(this->pwm, INVERT, LEFT_WHEEL);
   double base_right = getPwmForWheel(this->pwm, INVERT, RIGHT_WHEEL);
 
@@ -503,15 +466,10 @@ void Entity::turn_at_old(double angle) {
   double mu = 0.0;                    // Media
   double sigma = sqrt(target_angle);  // Deviazione standard
 
-  double time_now = millis();
-  double dt  = 0;
 
   while (fabs(error) > this->tollerance) {
     this->gyro.update();
 
-    
-    dt = millis() - time_now;
-    time_now = millis
     read_angle = normalizeAngle(this->gyro.getAngleZ());
 
     actual_angle = fabs(read_angle - start_angle);
@@ -546,8 +504,6 @@ void Entity::turn_at_old(double angle) {
     int pwm_left = real_left;
     int pwm_right = real_right;
 
-    correct_pwm_velocity(pwm_left,pwm_right,);
-
     encoder_left.setMotorPwm(pwm_left);
     encoder_right.setMotorPwm(pwm_right);
 
@@ -563,9 +519,9 @@ void Entity::turn_at_old(double angle) {
   delay(3);
 }
 
-*/
 
 
+/*
 void Entity::turn_at(double angle) {
   // Imposta PWM base (stesso modulo, segni opposti)
   double base_left = getPwmForWheel(this->pwm, INVERT, LEFT_WHEEL);
@@ -603,8 +559,6 @@ void Entity::turn_at(double angle) {
     
     error = (target_angle - actual_angle);
 
-
-    Serial.println("SONO QUI!!");
     // Uscita condizione
     if (fabs(error) < this->tollerance) break;
 
@@ -627,12 +581,6 @@ void Entity::turn_at(double angle) {
     pwm_left *= sign(base_left);
     pwm_right *= sign(base_right);
 
-    Serial.print("Err:");
-    Serial.print(error);
-    Serial.print(" | PWM L:");
-    Serial.print(pwm_left);
-    Serial.print(" | PWM R:");
-    Serial.println(pwm_right);
     encoder_left.setMotorPwm(pwm_left);
     encoder_right.setMotorPwm(pwm_right);
 
@@ -641,13 +589,13 @@ void Entity::turn_at(double angle) {
   }
 
   // Stop finale
+
   encoder_left.setMotorPwm(0);
   encoder_right.setMotorPwm(0);
   encoder_left.loop();
   encoder_right.loop();
-  
-  delay(3);
-}
+  delay(2);
+}*/
 
 
 double Entity::normalizeAngle(double angle) {
@@ -664,8 +612,8 @@ double Entity::normalizeAngle(double angle) {
 template<typename Func>
 void Entity::move_until(Func stopping_criteria, Directions dir, double keep_angle) {
   // PWM di base per la direzione scelta
-  double base_left = getPwmForWheel(this->pwm, dir, LEFT_WHEEL);
-  double base_right = getPwmForWheel(this->pwm, dir, RIGHT_WHEEL);
+  double base_left = getPwmForWheel(this->vel, dir, LEFT_WHEEL);
+  double base_right = getPwmForWheel(this->vel, dir, RIGHT_WHEEL);
 
   // Inizializza il giroscopio
   this->gyro.update();
@@ -690,11 +638,6 @@ void Entity::move_until(Func stopping_criteria, Directions dir, double keep_angl
     unsigned long now = millis();
     double dt = (now - last_time) / 1000.0;
     last_time = now;
-
-    
-    // Bilancia le ruote rispetto alle velocità reali
-    // teniamo la velocità fissa ad un certo valore
-    correct_pwm_velocity_target(pwm_left, pwm_right, dt);
 
     // Limiti PWM
     pwm_left = constrain(pwm_left, 0, 255);
@@ -722,71 +665,5 @@ void Entity::move_until(Func stopping_criteria, Directions dir, double keep_angl
 }
 
 
-
-void Entity::correct_pwm_velocity_target(double& pwm_left, double& pwm_right,
-                                         double dt,
-                                         double target_velocity = 30.0,
-                                         double Kp = 0.3, double Ki = 0.1, double Kd = 0.05)
-{
-    // Lettura velocità reali
-    double vL = get_velocity(LEFT_WHEEL);
-    double vR = get_velocity(RIGHT_WHEEL);
-
-    // Errori di velocità rispetto al target
-    double error_L = target_velocity - fabs(vL);
-    double error_R = target_velocity - fabs(vR);
-
-    // Stati statici locali per il PID (uno per ruota)
-    static double integral_L = 0;
-    static double integral_R = 0;
-    static double last_error_L = 0;
-    static double last_error_R = 0;
-
-    // Aggiorna integrale
-    integral_L += error_L * dt;
-    integral_R += error_R * dt;
-
-    // Derivate
-    double derivative_L = (error_L - last_error_L) / dt;
-    double derivative_R = (error_R - last_error_R) / dt;
-
-    last_error_L = error_L;
-    last_error_R = error_R;
-
-    // Calcola la correzione PID per ciascuna ruota
-    double correction_L = Kp * error_L + Ki * integral_L + Kd * derivative_L;
-    double correction_R = Kp * error_R + Ki * integral_R + Kd * derivative_R;
-
-    // Aggiorna i PWM proporzionalmente
-    pwm_left  -= correction_L;
-    pwm_right += correction_R;
-
-    // Limita i PWM a 0–255
-    double left_sign = sign(pwm_left);
-    double right_sign = sign(pwm_right);
-    
-    pwm_left  = constrain(pwm_left, 100, 255.0);
-    pwm_right = constrain(pwm_right, 100 , 255.0);
-
-    pwm_left *= left_sign;
-    pwm_right *= right_sign;
-    
-    // Debug opzionale
-    Serial.print("vL: "); Serial.print(vL);
-    Serial.print(" vR: "); Serial.print(vR);
-    Serial.print(" | errL: "); Serial.print(error_L);
-    Serial.print(" errR: "); Serial.print(error_R);
-    Serial.print(" | pwmL: "); Serial.print(pwm_left);
-    Serial.print(" pwmR: "); Serial.println(pwm_right);
-}
-
-
-void Entity::reset_velocity_params(){
-  
-  velocity_error_integral_L = 0;
-  last_error_velocity_L = 0;
-
-  // Velocità destra
-  velocity_error_integral_R = 0;
-  last_error_velocity_R = 0;
-}
+template<typename Func> double Entity::corrected_pwm(double base_pwm, double error, double K, bool isLeft, Func correction_func) 
+{ double correction = correction_func(K, error); return base_pwm - correction; }

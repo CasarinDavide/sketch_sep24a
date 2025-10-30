@@ -45,6 +45,7 @@ public:
     MeGyro gyro;
 
     // Parametri configurazione
+    uint16_t vel;
     uint16_t pwm;
     uint16_t encoder_left_port;
     uint16_t encoder_right_port;
@@ -86,6 +87,7 @@ public:
            uint16_t enc_r_port,
            uint16_t ultra_port,
            uint16_t gyro_p,
+           uint16_t _vel,
            uint16_t _pwm,
            uint16_t K,
            uint16_t _id);
@@ -99,10 +101,8 @@ public:
     void delay(double seconds);
     double get_Z();
     void set_to_zeroZ();
-    static void isr_encoder_left_A();
-    static void isr_encoder_left_B();
-    static void isr_encoder_right_A();
-    static void isr_encoder_right_B();
+    static void isr_encoder_left();
+    static void isr_encoder_right();
 
     double get_velocity(WheelSide);
 
@@ -120,16 +120,10 @@ private:
 
     // PWM e controllo differenziale
     double getPwmForWheel(Directions dir, WheelSide wheel);
-    double getPwmForWheel(double pwm, Directions dir, WheelSide wheel);
+    double getPwmForWheel(double vel, Directions dir, WheelSide wheel);
     template <typename Func>
     double corrected_pwm(double base_pwm, double error, double K, bool isLeft,Func corrector);
     double normalizeAngle(double angle);
     template <typename Func>
     void move_until(Func stopping_criteria, Directions dir = STRAIGHT, double keep_angle = 0);
-    //void correct_pwm_velocity_target(double& pwm_left, double& pwm_right,
-    //                                      double dt,
-    //                                      double target_velocity = 30.0,
-    //                                      double Kp = 0.3, double Ki = 0.1, double Kd = 0.05);
-
-    //void reset_velocity_params();
 };
