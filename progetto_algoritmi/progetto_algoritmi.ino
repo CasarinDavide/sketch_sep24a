@@ -14,14 +14,31 @@ void setup() {
     Serial.begin(31250);
 
     // Inizializzazione dell’entità con i parametri hardware
-    e = new Entity(SLOT1, SLOT2, PORT_10, 0x69, 180, 1);
-    e->set_to_zeroZ();
+    e = new Entity(SLOT1, SLOT2, PORT_10, 0x69, 150, 1, 1);
 }
 
 // ======= Loop =======
 void loop() {
   //Serial.println(e->get_Z());
-  //e->turn_at(360-45);
+  //e->actions();
+
+  e->move_to(STRAIGHT,0,10);
+  //e->turn_at(89);
+  //e->delay(10);
+  
+  //e->move_to(STRAIGHT, 0, 3);
   //e->delay(5);
-    e->turn_at(360);
+  //e->delay(5);
 }
+
+//150pwm - 3 sec
+//80.5 cm / 3sec -> 26.6 cm/s
+//da 12cm a 92cm
+//da 12cm a 93cm
+//da 12cm a 93cm
+//da 12cm a 94cm
+//da 12cm a 93.5
+//da 12cm a 93cm
+//da 12cm a 95cm
+//da 12cm a 92.5cm
+//da 12cm a 93.5cm

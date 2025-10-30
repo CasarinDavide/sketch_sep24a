@@ -487,6 +487,7 @@ void MeEncoderOnBoard::setMotorPwm(int16_t pwm)
     digitalWrite(MeEncoderOnBoard::_Port_H2, LOW);
     analogWrite(MeEncoderOnBoard::_Port_PWM, abs(pwm));
   }
+
 }
 
 /**

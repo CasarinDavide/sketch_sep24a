@@ -6,6 +6,11 @@ double to_radians(double degree) {
     return degree * (PI / 180.0f);
 }
 
+double sign(double value)
+{ 
+    return value > 0?1:-1; 
+}
+
 double to_degree(double angle) {
     return angle * (180.0f / PI);
 }
@@ -25,6 +30,13 @@ Vector2D to_vector(double d, double alpha) {
 double opposite_angle(double adj_1, double adj_2, double opposite) {
     return acos(((adj_1 * adj_1) + (adj_2 * adj_2) - (opposite * opposite)) / (2 * adj_1 * adj_2));
 }
+
+
+double opposite_angle_vector(Vector2D adj_1, Vector2D adj_2, Vector2D opposite) {
+    return acos(((adj_1.get_vnorm()) + (adj_2.get_vnorm()) - (opposite.get_vnorm())) / (2 * sqrt(adj_1.get_vnorm()) * sqrt(adj_2.get_vnorm()) ));
+}
+
+
 
 vector<double> get_all_angles(double a, double b, double c) {
     vector<double> r;
@@ -86,13 +98,41 @@ Vector2D Vector2D::operator+(const Vector2D& vector) const {
     return Vector2D(x + vector.x, y + vector.y);
 }
 
+Vector2D Vector2D::operator*(const double& x) {
+    return Vector2D(this->x * x, this->y * x);
+}
+
+void Vector2D::print_vector()
+{
+    Serial.println("PRINT VECTOR");
+
+    Serial.print("X:");
+    Serial.print(this->x);
+
+    Serial.println("Y:");
+    Serial.print(this->y);
+
+    Serial.println("NORM:");
+    Serial.print(this->v_norm);
+
+    Serial.println("ANGLE:");
+    Serial.print(this->v_degree);
+
+    Serial.println(" END PRINT VECTOR");
+}
 // --- LineParam ---
 LineParam::LineParam(const Vector2D& origin, const Vector2D& direction)
     : origin(origin), dir(direction) {}
 
+// --- LineParam ---
+LineParam::LineParam(const Vector2D& direction)
+    : origin({0,0}), dir(direction) {}
+
 Vector2D LineParam::evaluate(double t) const {
     return origin + Vector2D(dir.x * t, dir.y * t);
 }
+
+
 
 double LineParam::slope() const {
     return dir.y / dir.x;
@@ -101,5 +141,7 @@ double LineParam::slope() const {
 double LineParam::intercept() const {
     return origin.y - slope() * origin.x;
 }
+
+
 
 } // namespace LinAlg

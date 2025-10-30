@@ -21,9 +21,11 @@ double distance_between_vectors(double a, double b, double alpha);
 class Vector2D distance_between_vectors(class Vector2D a, class Vector2D b);
 class Vector2D to_vector(double d, double alpha);
 double opposite_angle(double adj_1, double adj_2, double opposite);
+double opposite_angle_vector(Vector2D adj_1, Vector2D adj_2, Vector2D opposite);
 vector<double> get_all_angles(double a, double b, double c);
 Vector2D get_avg_center(class vector<class Vector2D> vectors);
 bool close_to(double a, double c, double e_tol);
+double sign(double value);
 
 // === Classe Vector2D ===
 class Vector2D {
@@ -38,14 +40,17 @@ public:
     Vector2D(double radius, double alpha, int); // polare
 
     Vector2D& operator=(const Vector2D& v);
+    Vector2D operator*(const double& x);
 
     double get_vnorm() const;
     double get_vdegree() const;
     double get_x() const;
     double get_y() const;
     static double evaluate_vnorm(double x, double y);
+    void print_vector();
     Vector2D operator-(const Vector2D& vector) const;
     Vector2D operator+(const Vector2D& vector) const;
+
 };
 
 // === Classe LineParam ===
@@ -55,6 +60,7 @@ class LineParam {
 
 public:
     LineParam(const Vector2D& origin, const Vector2D& direction);
+    LineParam(const Vector2D& direction);
     Vector2D evaluate(double t) const;
     double slope() const;
     double intercept() const;
