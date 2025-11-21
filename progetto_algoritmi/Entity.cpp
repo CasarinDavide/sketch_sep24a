@@ -1,38 +1,68 @@
 #include "Entity.h"
+#define SPEED 12.0  // cm/s — taralo in base al tuo robot
+#define ID 2
+
+#define MIN_RADIUS 25
+#define ANGULAR_TOL 0.2
+#define CLUSTER_DIST 85
+#define CLUSTER_AGGR_DIST 10
+#define SCAN_NUMBER 20
+#define CLOSE_TO_ERROR 10
+#define DELAY_ERROR 1.5
+#define MOVE_LINE_SECONDS 3
+#define MOVE_TRIANGLE_SECONDS 3
+#define DISTANCE_BETWEEN_ROBOTS 10
+#define DISTANCE_BETWEEN_ROBOTS_ERROR 5
+#define SCAN_SAMPLE_NUMBER 2
+#define DUMMY_FUNCTION_INTERVAL { 10, target_angle }
+
+// Macro per configurazione
+#if ID == 1
+  #define MAX_VEL 60
+  #define MIN_VEL 10
+#elif ID == 2
+  #define MAX_VEL 40
+  #define MIN_VEL 10
+#endif
+
+
+double dummy_function(double error,double interval[], double a = 2,double max_velocity = MAX_VEL,double min_velocity = MIN_VEL)
+{
+    if(error > interval[1])
+    {
+        return max_velocity;
+    }
+    else if(error < interval[0])
+    {
+        return min_velocity;
+    }
+    else
+    {
+        return constrain(a * error,min_velocity,max_velocity);
+    }
+}
 
 
 
 
-#define MAX_SPEED 15.0  // giri/s — taralo in base al tuo robot
-
+/* ------------------- */
 
 Entity* Entity::instance = nullptr;
 
-inline double pwm_to_speed(double pwm_value) {
-  return (pwm_value / 255.0) * MAX_SPEED;
-}
-
-#define SPEED(id) ((id) == 1 ? 25.5 : (id) == 2 ? 20.5 \
-                                    : (id) == 3 ? 15.0 \
-                                                : 10.0)
-
 Entity::Entity() {}
 
-Entity::Entity(uint16_t enc_l_port, uint16_t enc_r_port, uint16_t ultra_port,
-               uint16_t gyro_p, uint16_t _vel, uint16_t _pwm, uint16_t K, uint16_t _id)
+Entity::Entity(uint16_t enc_l_port, uint16_t enc_r_port, uint16_t ultra_port, uint16_t gyro_p)
   : encoder_left(enc_l_port),
     encoder_right(enc_r_port),
     ultra(ultra_port),
     gyro(0, gyro_p),
-    vel(_vel),
-    pwm(_pwm),
+    vel(MAX_VEL),
     encoder_left_port(enc_l_port),
     encoder_right_port(enc_r_port),
     ultra_port(ultra_port),
     gyro_port(gyro_p),
-    internal_map(),
-    K(K),
-    id(_id) {
+    internal_map()
+ {
   instance = this;
   // === Configurazione timer PWM ===
   TCCR1A = _BV(WGM10);
@@ -49,6 +79,12 @@ Entity::Entity(uint16_t enc_l_port, uint16_t enc_r_port, uint16_t ultra_port,
   encoder_left.setSpeedPid(0.18,0,0);
   encoder_right.setSpeedPid(0.18,0,0);
 
+
+  encoder_left.runSpeed(0);
+  encoder_right.runSpeed(0);
+  encoder_left.loop();
+  encoder_right.loop();
+
   // === Collegamento interrupt encoder ===
 
   attachInterrupt(encoder_left.getIntNum(), isr_encoder_left, RISING);
@@ -56,22 +92,21 @@ Entity::Entity(uint16_t enc_l_port, uint16_t enc_r_port, uint16_t ultra_port,
 
   // === Stati iniziali ===
   last_state = NULL;
-  internal_state = SCAN;
-  min_radius = 50;
-  tollerance = 1.75;  // Tolleranza angolare
+  internal_state = CALIBRATION;
+
+  
 }
 
 
 void Entity::move_at_coord(const Vector2D& v) {
 
   Serial.print("MI STO PROIETTANDO SULLA RETTA");
-  double speed = SPEED(this->id);
 
   this->turn_at(v.get_vdegree());
 
-  double seconds = v.get_vnorm() / speed;
+  double seconds = v.get_vnorm() / SPEED;
   Serial.println(seconds);
-  this->move_to(STRAIGHT, 0, seconds);
+  this->move_to(STRAIGHT, seconds);
 }
 
 
@@ -106,22 +141,32 @@ double Entity::get_velocity(WheelSide wheel) {
 }
 
 void Entity::actions() {
-  encoder_left.runSpeed(0);
-  encoder_right.runSpeed(0);
-  encoder_left.loop();
-  encoder_right.loop();
 
   if (internal_state == SLEEP) return;
 
+  if(internal_state == CALIBRATION)
+  {
+    // pid calibration
+    for(int i = 0; i< 4; i++)
+      turn_at(90);
+    
+    set_state(SCAN);
+
+    return;
+  }
+
+
+
   if (internal_state == SCAN) {
-    scan(16);
+    scan(SCAN_NUMBER);
+
     this->internal_map.serial_print();
 
     // Filtraggio algoritmo
     aggregate_cluster();
 
     // Set min distance to keep
-    filter_cluster(110);
+    filter_cluster(CLUSTER_DIST);
 
     Serial.println("-------- CLUSTER FILTRATO DOPO FUNZIONE --------");
     internal_map.serial_print();
@@ -165,7 +210,7 @@ void Entity::actions() {
     Serial.println("DISTANCE 3:");
     Serial.print(distance_3);
 
-    if (close_to(distance_1, distance_2, 10) && close_to(distance_2, distance_3, 10)) {
+    if (close_to(distance_1, distance_2, CLOSE_TO_ERROR) && close_to(distance_2, distance_3, CLOSE_TO_ERROR)) {
       // Tutte le distanze sono simili → triangolo equilatero
       //random_walk() //TODO
     }
@@ -177,7 +222,7 @@ void Entity::actions() {
       // Robot già raccolti → elezione leader
 
       // l'abbiamo forzato ricordati !!
-      //set_state(MASTER);
+      set_state(MASTER);
 
       if (distance_3 <= distance_2 && distance_3 <= distance_1) {
 
@@ -196,7 +241,6 @@ void Entity::actions() {
   }
 
   if (internal_state == GAT) {
-    
 
     double bari_angle = center_gravity.get_vdegree();
 
@@ -206,18 +250,32 @@ void Entity::actions() {
     Serial.print("-- -- POS VETTORE  -- - - ");
 
     Serial.print("ANGOLO BARICENTRO NON NORMALIZZATO ");
+
     Serial.println(bari_angle);
 
-    Serial.print("ANGOLO BARICENTRO");
+    double norm_bari_angle = bari_angle < 0?360+bari_angle:bari_angle;
+
+    Serial.print("ANGOLO BARICENTRO NORMALIZZATO ");
     Serial.println(bari_angle);
 
+    delay(1);
+    turn_at(norm_bari_angle);
+    
+    //reset_motors_pid();
+    encoder_left.loop();
+    encoder_right.loop();
+    
 
-    turn_at(bari_angle);
-    auto until_min_raius = [this]() {
+    Serial.print("MIN_RADIUS");
+    auto until_min_raius = [this](double seconds) {
       double current_dist = ultra.distanceCm();
-      return current_dist <= min_radius;
+      return (current_dist <= MIN_RADIUS) || ((seconds/1000) < (center_gravity.get_vnorm() / SPEED));
     };
 
+    // _---- quando passa da turn at a move until fa un po quello che vuole 
+    // da capire perchè
+
+    
     move_until(until_min_raius);
     set_state(SCAN);
   }
@@ -227,7 +285,13 @@ void Entity::actions() {
     Serial.print("SONO IL MASTER");
     Vector2D u = triangle[0];
     Vector2D v = triangle[1];
-    Vector2D w = distance_between_vectors(v * 2.0, u);
+    
+    // possiamo scegliere la direzione da andare, prendiamo sempre quella con la norma più bassa
+    Vector2D w_1 = distance_between_vectors(u * 2.0, v);
+    Vector2D w_2 = distance_between_vectors(v * 2.0, u);
+    
+    Vector2D w = w_1.get_vnorm() > w_2.get_vnorm()? w_2:w_1;
+
     Vector2D h = distance_between_vectors(v, u);
 
     Serial.println("U");
@@ -240,13 +304,23 @@ void Entity::actions() {
     Serial.println("H");
     h.print_vector();
 
+    Serial.print("Angolo Retta");
+    Serial.println(w.get_vdegree());
+
     move_at_coord(w);
+    
+    Serial.print("Torno nel punto di partenza");
+    Serial.println(360-w.get_vdegree());
 
+    turn_at(360-w.get_vdegree());
 
-    // turn to side for starting to go straight
+    delay(1);
 
     LineParam st_line(direction);
 
+    Serial.println("DIRECTION GET V DEGREE");
+    Serial.println(direction.get_vdegree());
+    
     double opposite_angle_measure = st_line.evaluate(-1).get_y() > st_line.evaluate(1).get_y() ? direction.get_vdegree() + 180 : direction.get_vdegree();
 
     turn_at(opposite_angle_measure);
@@ -260,80 +334,109 @@ void Entity::actions() {
   }
 
   if (internal_state == SLAVE) {
+    
     LineParam st_line(direction);
 
     double opposite_angle_measure = st_line.evaluate(-1).get_y() > st_line.evaluate(1).get_y() ? direction.get_vdegree() + 180 : direction.get_vdegree();
 
     turn_at(opposite_angle_measure);
-    set_state(SLEEP);
 
     Serial.println("OPPOSITE ANGLE");
     Serial.print(opposite_angle_measure);
+    
+
+    // devo aspettare per quando il master ci mette ad arrivare in posizione 
+
+    Vector2D distance_1_vector = triangle[0];
+    Vector2D distance_2_vector = triangle[1];
+    Vector2D distance_3_vector = distance_between_vectors(triangle[0], triangle[1]);
+
+    Vector2D w = distance_1_vector.get_vnorm() > distance_2_vector.get_vnorm()?distance_1_vector:distance_2_vector;
+
+    Vector2D w_1 = distance_between_vectors(w*2,distance_3_vector );
+    Vector2D w_2 = distance_between_vectors(distance_3_vector*2, w);
+    
+    double seconds_to_wait = w_1.get_vnorm() > w_2.get_vnorm()?w_2.get_vnorm() / SPEED:w_1.get_vnorm() / SPEED;
+    
+    
+    Serial.println(seconds_to_wait);
+
+    delay(seconds_to_wait + DELAY_ERROR);
+
     set_state(FOLLOWING);
   }
 
 
   if (internal_state == FOLLOWING) {
 
+    // teoricamente è giusto perchè tutti hanno aspettato il master/ il master è già arrivato!
+    LineParam st_line(direction);
+
+    Serial.println("STO FACENDO FOLLOWING");
+
     double first_current_dist = ultra.distanceCm();
 
-    // SE è + inf la distanza misurata allora sarà quello piu in avanit
-    if (!close_to(first_current_dist, direction.get_vnorm(), 10)) {
-      move_to(STRAIGHT, 0, 5);
-    } else {
+    // SE è + inf la distanza misurata allora sarà quello piu in avanti perforza
+
+    if (!close_to(first_current_dist, direction.get_vnorm(), CLOSE_TO_ERROR)) {
+      // sono quello davanti
+      move_to(STRAIGHT, MOVE_LINE_SECONDS);
+      move_to_triangle(direction, DISTANCE_BETWEEN_ROBOTS, HEAD);
+      move_to(STRAIGHT, MOVE_TRIANGLE_SECONDS);
+      back_to_line(direction, DISTANCE_BETWEEN_ROBOTS, HEAD);
+    } 
+    else {
+    
+      // se quello davanti ha già iniziato 
+
+      Serial.print("DISTANZA");
+      Serial.println(first_current_dist);
+      
       bool has_started = false;
 
       // busy-waiting
       while (!has_started) {
-        has_started = first_current_dist < ultra.distanceCm() + 5;
+        has_started = first_current_dist < ultra.distanceCm() + DISTANCE_BETWEEN_ROBOTS_ERROR;
+        Serial.println("QUI STO ASPETTANDO");
       }
 
-      /*
-                2) fare funzione dove prendi in considerazione una distanza minima
-                    e raggiunta la distanza minima setta i vel a 0, dopo conta quanti secondi sta in quella distanza
-                    distanza da capire quale dare, possibile hint è norma di direction!!!!! :>
-                     
-            
-            
-            */
+      Serial.println("FOLLOW");
+      follow(DISTANCE_BETWEEN_ROBOTS, MOVE_LINE_SECONDS);
+
+      move_to_triangle(direction, DISTANCE_BETWEEN_ROBOTS, TAIL);
+      move_to(STRAIGHT, MOVE_TRIANGLE_SECONDS);
+      back_to_line(direction, DISTANCE_BETWEEN_ROBOTS, TAIL);
+
     }
   }
 }
 
-void Entity::set_to_zeroZ() {
-  this->gyro.update();
-  delay(1);
-}
-
-double Entity::get_Z() {
-
-  delay(1);
-  return this->gyro.getAngleZ();
-}
-
-void Entity::move_to(Directions dir, double keep_angle, double seconds) {
+void Entity::move_to(Directions dir, double seconds) {
+  
   double vel_left = getPwmForWheel(this->vel, dir, LEFT_WHEEL);
   double vel_right = getPwmForWheel(this->vel, dir, RIGHT_WHEEL);
+
   unsigned long endTime = millis() + (unsigned long)(seconds * 1000);
+  
+  encoder_left.runSpeed(MIN_VEL);
+  encoder_right.runSpeed(MIN_VEL);
+  encoder_left.loop();
+  encoder_right.loop();
 
   while (millis() < endTime) {
-    encoder_left.runSpeed(vel_right);
+    encoder_left.runSpeed(vel_left);
     encoder_right.runSpeed(vel_right);
-
-    Serial.print("vL: ");
-    Serial.println(get_velocity(LEFT_WHEEL));
-    Serial.print("vR: ");
-    Serial.println(get_velocity(RIGHT_WHEEL));
-
+    
     encoder_left.loop();
     encoder_right.loop();
   }
 
-  // Arresta i motori
-  encoder_left.runSpeed(0);
-  encoder_right.runSpeed(0);
+  encoder_left.setMotorPwm(0);
+  encoder_right.setMotorPwm(0);
   encoder_left.loop();
   encoder_right.loop();
+
+  //delay(5);
 }
 
 
@@ -364,7 +467,7 @@ void Entity::filter_cluster(double min_distance) {
 }
 
 void Entity::aggregate_cluster() {
-  double eps_tol = 10;  // tolleranza distanza cluster
+  double eps_tol = CLUSTER_AGGR_DIST;  // tolleranza distanza cluster
   vector<pair<double, double>> clusters;
 
   if (internal_map.size() == 0) {
@@ -403,37 +506,54 @@ void Entity::aggregate_cluster() {
 
 void Entity::delay(double seconds) {
   unsigned long endTime = millis() + seconds * 1000;
-  while (millis() < endTime)
-    ;
+  while (millis() < endTime);
 }
 
 void Entity::scan(int sample_measurement) {
-  gyro.update();
-
-  z_axis_bf_scan = normalizeAngle(gyro.getAngleZ());
-
-  if (z_axis_bf_scan < 0) z_axis_bf_scan += 360;
-
   double angle = 0;
-  double delta_angle = 360 / sample_measurement;
+  double delta_angle = 360 / (double)sample_measurement;
   int i = 0;
   do {
-    double distance = get_avg_distance(5);
+    double distance = get_avg_distance(SCAN_SAMPLE_NUMBER);
     internal_map.push_back({ angle, distance });
     angle = angle + delta_angle;
-    turn_at(delta_angle);
-    // move_to(STRAIGHT,0,3);
-    i++;
 
+    turn_at(delta_angle);
+    i++;
   } while (i < sample_measurement);
+
+  turn_at(delta_angle);
 }
 
 double Entity::get_avg_distance(int n_sample) {
-  double mean_distance = 0.0;
-  for (int i = 0; i < n_sample; ++i) {
-    mean_distance += ultra.distanceCm();
-  }
-  return mean_distance / n_sample;
+  
+    if (n_sample < 1) return 0;
+    if (n_sample > 50) n_sample = 50;  // evita array troppo grandi
+
+    double samples[50];
+
+    for (int i = 0; i < n_sample; ++i) {
+        samples[i] = ultra.distanceCm();
+        delay(0.05);  // utile per stabilizzare la lettura
+    }
+
+    for (int i = 0; i < n_sample - 1; ++i) {
+        for (int j = 0; j < n_sample - i - 1; ++j) {
+            if (samples[j] > samples[j + 1]) {
+                double tmp = samples[j];
+                samples[j] = samples[j + 1];
+                samples[j + 1] = tmp;
+            }
+        }
+    }
+
+    if (n_sample % 2 == 1) {
+        return samples[n_sample / 2];               // dispari
+    } else {
+        int mid = n_sample / 2;
+        return (samples[mid - 1] + samples[mid]) / 2.0;  // pari
+    }
+
 }
 
 double Entity::getPwmForWheel(double vel, Directions dir, WheelSide wheel) {
@@ -450,65 +570,55 @@ double Entity::getPwmForWheel(double vel, Directions dir, WheelSide wheel) {
 }
 
 
-
 void Entity::turn_at(double angle) {
+
+  angle += tollerance;
   double base_left = getPwmForWheel(this->pwm, INVERT, LEFT_WHEEL);
   double base_right = getPwmForWheel(this->pwm, INVERT, RIGHT_WHEEL);
-
-  this->gyro.update();
-  delay(0.5);
-
-  double start_angle = normalizeAngle((int)this->gyro.getAngleZ());
+  
+  this->gyro.begin();
+  
+  double start_angle = 0;
   double read_angle;
   double target_angle = angle;
   double actual_angle = start_angle;
   double error = angle;
-  double mu = 0.0;                    // Media
-  double sigma = sqrt(target_angle);  // Deviazione standard
-
-
-  while (fabs(error) > this->tollerance) {
+  double interval[2] DUMMY_FUNCTION_INTERVAL;
+  bool first_read = true;
+  
+  
+  while (fabs(error) > ANGULAR_TOL) {
     this->gyro.update();
 
-    read_angle = normalizeAngle(this->gyro.getAngleZ());
+    double angle_z = first_read?0:this->gyro.getAngleZ();
+    first_read = false;
+    read_angle = normalizeAngle(angle_z);
 
     actual_angle = fabs(read_angle - start_angle);
-
+  
     error = target_angle - actual_angle;
+    
+    //per ra
+    //double speed = dummy_function(fabs(error),interval,2,this->vel/2,5);
+    
+    double speed = dummy_function(fabs(error),interval,1,this->vel,MIN_VEL);
+    
+    //inizio operazione FONDAMENTALE
+    //Serial.println();
 
-    auto gaussian_error = [=](double K, double x) {
-      double err = -K * (abs(base_left) - 100) * exp(-pow(mu - x, 2) / (2.0 * pow(sigma, 2)));
-      return err;
-    };
-
-    double real_left = corrected_pwm(base_left, error, this->K, true, gaussian_error);
-    double real_right = corrected_pwm(base_right, error, this->K, false, gaussian_error);
-
-    if (abs(real_left) > 150) {
-      real_left = real_left > 0 ? 150 : -150;
-    }
-
-    if (abs(real_right) > 150) {
-      real_right = real_right > 0 ? 150 : -150;
-    }
-
-
-    if (abs(real_left) > 100) {
-      real_left = real_left > 0 ? 100 : -100;
-    }
-
-    if (abs(real_right) < 100) {
-      real_right = real_right > 0 ? 100 : -100;
-    }
-
-    int pwm_left = real_left;
-    int pwm_right = real_right;
-
-    encoder_left.setMotorPwm(pwm_left);
-    encoder_right.setMotorPwm(pwm_right);
+    delay(0.01);
+    //fine operazione FONDAMENTALE
+    encoder_left.runSpeed(getPwmForWheel(speed, INVERT, LEFT_WHEEL));
+    encoder_right.runSpeed(getPwmForWheel(speed, INVERT, LEFT_WHEEL));
+    
 
     encoder_left.loop();
     encoder_right.loop();
+    this->gyro.update();
+
+    read_angle = normalizeAngle(this->gyro.getAngleZ());
+    actual_angle = fabs(read_angle - start_angle);
+    error = target_angle - actual_angle;
   }
 
   encoder_left.setMotorPwm(0);
@@ -516,95 +626,17 @@ void Entity::turn_at(double angle) {
   encoder_left.loop();
   encoder_right.loop();
 
-  delay(3);
+  delay(1);
 }
 
 
-
-/*
-void Entity::turn_at(double angle) {
-  // Imposta PWM base (stesso modulo, segni opposti)
-  double base_left = getPwmForWheel(this->pwm, INVERT, LEFT_WHEEL);
-  double base_right = getPwmForWheel(this->pwm, INVERT, RIGHT_WHEEL);
-
-  double pwm_left = base_left;
-  double pwm_right = base_right;
-
-  this->gyro.update();
-
-  // PID parameters
-  double Kp = 2.0;
-  double Ki = 0.0;
-  double Kd = 0.5;
-
-  double integral = 0;
-  double last_error = 0;
-
-  unsigned long last_time = millis();
-  
-  double start_angle = normalizeAngle((int)this->gyro.getAngleZ());
-  double read_angle;
-  double target_angle = angle;
-  double actual_angle = start_angle;
-  double error = angle;
-  
-
-  while (true) {
-    this->gyro.update();
-
-    // Calcolo angolo attuale e differenza
-    
-    read_angle = normalizeAngle(this->gyro.getAngleZ());
-    actual_angle = fabs(read_angle - start_angle);
-    
-    error = (target_angle - actual_angle);
-
-    // Uscita condizione
-    if (fabs(error) < this->tollerance) break;
-
-    // Calcolo dt in secondi
-    unsigned long now = millis();
-    double dt = (now - last_time) / 1000.0;
-    last_time = now;
-
-    // PID sull'angolo
-    integral += error * dt;
-    double derivative = (error - last_error) / dt;
-    last_error = error;
-
-    double correction = Kp * error + Ki * integral + Kd * derivative;
-
-    // Aggiorna PWM delle ruote (simmetrico)
-    pwm_left = constrain(abs(base_left) + correction, 100, 150);
-    pwm_right = constrain(abs(base_right) + correction, 100, 150);
-
-    pwm_left *= sign(base_left);
-    pwm_right *= sign(base_right);
-
-    encoder_left.setMotorPwm(pwm_left);
-    encoder_right.setMotorPwm(pwm_right);
-
-    encoder_left.loop();
-    encoder_right.loop();
-  }
-
-  // Stop finale
-
-  encoder_left.setMotorPwm(0);
-  encoder_right.setMotorPwm(0);
-  encoder_left.loop();
-  encoder_right.loop();
-  delay(2);
-}*/
-
-
 double Entity::normalizeAngle(double angle) {
-  if (angle > 0) {
+  
+  if (angle > 1) {
     angle = 360 - angle;
   } else {
     angle = fabs(angle);
   }
-
   return angle;
 }
 
@@ -612,47 +644,31 @@ double Entity::normalizeAngle(double angle) {
 template<typename Func>
 void Entity::move_until(Func stopping_criteria, Directions dir, double keep_angle) {
   // PWM di base per la direzione scelta
-  double base_left = getPwmForWheel(this->vel, dir, LEFT_WHEEL);
-  double base_right = getPwmForWheel(this->vel, dir, RIGHT_WHEEL);
-
-  // Inizializza il giroscopio
-  this->gyro.update();
-  double start_angle = normalizeAngle(this->gyro.getAngleZ());
-  double target_angle = normalizeAngle(start_angle + keep_angle);
-
-  // Parametri PID per il controllo direzionale
-  double Kp = 2.0;
-  double Ki = 0.0;
-  double Kd = 0.3;
-
-  double integral = 0.0;
-  double last_error = 0.0;
-  unsigned long last_time = millis();
-  double pwm_left = base_left;
-  double pwm_right = base_right;
+  double vel_left = getPwmForWheel(this->vel, dir, LEFT_WHEEL);
+  double vel_right = getPwmForWheel(this->vel, dir, RIGHT_WHEEL);
   
-  while (!stopping_criteria()) {
-    this->gyro.update();
+  double started_millis = millis();
+  double elapsed_millis = started_millis;
 
-    // Calcolo dt in secondi
-    unsigned long now = millis();
-    double dt = (now - last_time) / 1000.0;
-    last_time = now;
+  encoder_left.runSpeed(MIN_VEL);
+  encoder_right.runSpeed(MIN_VEL);
+  encoder_left.loop();
+  encoder_right.loop();
+  
+  while (!stopping_criteria(elapsed_millis - started_millis)) {
 
-    // Limiti PWM
-    pwm_left = constrain(pwm_left, 0, 255);
-    pwm_right = constrain(pwm_right, 0, 255);
+    elapsed_millis = millis();
 
-    pwm_left  *= sign(base_left);
-    pwm_right *= sign(base_right);
+    encoder_left.runSpeed(vel_left);
+    encoder_right.runSpeed(vel_right);
+
+    Serial.print("vL: ");
+    Serial.println(get_velocity(LEFT_WHEEL));
+    Serial.print("vR: ");
+    Serial.println(get_velocity(RIGHT_WHEEL));
     
-    // Applica PWM ai motori
-    encoder_left.setMotorPwm(pwm_left);
-    encoder_right.setMotorPwm(pwm_right);
-
     encoder_left.loop();
     encoder_right.loop();
-
   }
 
   // Arresta i motori
@@ -667,3 +683,94 @@ void Entity::move_until(Func stopping_criteria, Directions dir, double keep_angl
 
 template<typename Func> double Entity::corrected_pwm(double base_pwm, double error, double K, bool isLeft, Func correction_func) 
 { double correction = correction_func(K, error); return base_pwm - correction; }
+
+
+void Entity::follow(double min_dist,double seconds)
+{
+  double start_time = millis();
+  double target_time = start_time + seconds * 1000;
+  double elapsed_time = start_time;
+
+  while(target_time - elapsed_time > 0)
+  {
+      elapsed_time = millis();
+      double current_dist = ultra.distanceCm();
+
+      double error = current_dist - min_dist;
+      
+      if(error<0)
+      {
+        encoder_left.setMotorPwm(0);
+        encoder_right.setMotorPwm(0);
+      }
+      else
+      {        
+        double vel_left = getPwmForWheel(this->vel, STRAIGHT, LEFT_WHEEL);
+        double vel_right = getPwmForWheel(this->vel, STRAIGHT, RIGHT_WHEEL);
+        
+        encoder_left.runSpeed(vel_left);
+        encoder_right.runSpeed(vel_right);
+      }
+
+      encoder_left.loop();
+      encoder_right.loop();
+  }
+
+  encoder_left.setMotorPwm(0);
+  encoder_right.setMotorPwm(0);
+  encoder_left.loop();
+  encoder_right.loop();
+}
+
+
+void Entity::reset_motors_pid(){
+  encoder_left.resetPID();
+  encoder_right.resetPID();;
+}
+
+
+
+void Entity::move_to_triangle(LineParam pt,double distance, EntityState state)
+{
+  Vector2D vector_1 = Vector2D(pt.get_versor()*distance);
+  Vector2D ortogonal_vector =  Vector2D(vector_1.y ,- vector_1.x);
+  Vector2D projection = vector_1 + ortogonal_vector;
+  
+  if(state == HEAD) {
+    move_at_coord(projection);
+    double projection_deg = 180 - projection.get_vdegree();
+    double deg_to_turn = projection.get_vdegree() - 90;
+    turn_at(360-deg_to_turn);
+  }
+  else {
+    turn_at(90);
+
+    double time = projection.get_vnorm() / SPEED;
+    delay(time + 1.5);
+  }
+}
+
+void Entity::back_to_line(LineParam pt,double distance, EntityState state) {
+  Vector2D vector_1 = Vector2D(pt.get_versor()*distance);
+  Vector2D ortogonal_vector =  Vector2D(vector_1.y ,- vector_1.x);
+  Vector2D projection = vector_1 + ortogonal_vector;
+  
+  if(state == HEAD) {
+    double projection_deg = 180 - projection.get_vdegree();
+    double deg_to_turn = projection.get_vdegree() - 90;
+    turn_at(180-deg_to_turn);
+
+    Vector2D go_back_vec(projection.get_vnorm(), 180-deg_to_turn, 0);
+
+    move_at_coord(go_back_vec);
+  }
+  else {
+    turn_at(270);
+
+    double time = projection.get_vnorm() / SPEED;
+    delay(time + 1.5);
+  }
+}
+
+
+

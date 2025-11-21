@@ -64,6 +64,7 @@ public:
     Vector2D evaluate(double t) const;
     double slope() const;
     double intercept() const;
+    Vector2D get_versor();
 };
 
 }

@@ -8,7 +8,6 @@
 using namespace LinAlg;
 using namespace Algo; 
 
-
 // ======= Enum =======
 typedef enum EntityState {
     SCAN,
@@ -18,7 +17,10 @@ typedef enum EntityState {
     MASTER,
     SLAVE,
     FOLLOWING,
-    LEADER
+    LEADER,
+    CALIBRATION,
+    HEAD,
+    TAIL
 } EntityState;
 
 typedef enum Directions {
@@ -61,7 +63,6 @@ public:
 
     // Parametri di controllo
     double tollerance;
-    double K;
     double min_radius;
     // Velocità sinistra
     double velocity_error_integral_L = 0;
@@ -78,33 +79,30 @@ public:
     Vector2D center_gravity;
     Vector2D direction;
 
-    // z_axis_bf_scan before scan
-    double z_axis_bf_scan;
-
     // Costruttori
     Entity();
     Entity(uint16_t enc_l_port,
            uint16_t enc_r_port,
            uint16_t ultra_port,
-           uint16_t gyro_p,
-           uint16_t _vel,
-           uint16_t _pwm,
-           uint16_t K,
-           uint16_t _id);
+           uint16_t gyro_p);
 
     // Metodi principali
     void actions();
-    void move_to(Directions dir, double keep_angle, double seconds);
+    void move_to(Directions dir, double seconds);
     void move_at_coord(const Vector2D& v);
     void turn_at(double angle);
     // Utilità
     void delay(double seconds);
-    double get_Z();
-    void set_to_zeroZ();
     static void isr_encoder_left();
     static void isr_encoder_right();
 
     double get_velocity(WheelSide);
+    void follow(double min_dist,double seconds);
+    
+    void scan(int sample_measurement);
+
+    void move_to_triangle(LineParam pt,double distance, EntityState state);
+    void back_to_line(LineParam pt,double distance, EntityState state);
 
 
 private:
@@ -115,7 +113,6 @@ private:
     void aggregate_cluster();
 
     
-    void scan(int sample_measurement);
     double get_avg_distance(int n_sample);
 
     // PWM e controllo differenziale
@@ -126,4 +123,6 @@ private:
     double normalizeAngle(double angle);
     template <typename Func>
     void move_until(Func stopping_criteria, Directions dir = STRAIGHT, double keep_angle = 0);
+
+    void reset_motors_pid();
 };

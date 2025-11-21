@@ -64,7 +64,7 @@ bool close_to(double a, double c, double e_tol) {
 Vector2D::Vector2D() : x(0), y(0), v_norm(0), v_degree(0) {}
 
 Vector2D::Vector2D(double x, double y)
-    : x(x), y(y), v_norm(evaluate_vnorm(x, y)), v_degree(to_degree(acos(x / v_norm))) {}
+    : x(x), y(y), v_norm(evaluate_vnorm(x, y)), v_degree(to_degree(atan2(y, x))) {}
 
 Vector2D::Vector2D(double radius, double alpha, int)
     : x(cos(to_radians(alpha)) * radius),
@@ -82,7 +82,7 @@ Vector2D& Vector2D::operator=(const Vector2D& v) {
 }
 
 double Vector2D::get_vnorm() const { return v_norm; }
-double Vector2D::get_vdegree() const { return v_degree; }
+double Vector2D::get_vdegree() const {return v_degree < 0? 360+v_degree:v_degree; }
 double Vector2D::get_x() const { return x; }
 double Vector2D::get_y() const { return y; }
 
@@ -132,7 +132,10 @@ Vector2D LineParam::evaluate(double t) const {
     return origin + Vector2D(dir.x * t, dir.y * t);
 }
 
-
+Vector2D LineParam::get_versor() {
+    double norm = dir.get_vnorm();
+    return Vector2D(dir.x / norm, dir.y / norm);
+}
 
 double LineParam::slope() const {
     return dir.y / dir.x;
