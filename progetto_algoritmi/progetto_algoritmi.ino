@@ -20,7 +20,10 @@ void setup() {
 // ======= Loop =======
 void loop() {
   //Serial.println(e->get_Z());
-  e->actions();
+  //e->actions();
+  e->get_avg_distance(1000);
+  //e->delay(10);
+  
   //e->follow(5, 10);
   
   //e->turn_at(90);
