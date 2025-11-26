@@ -1,10 +1,9 @@
 #include "Entity.h"
-#define SPEED 12.0  // cm/s — taralo in base al tuo robot
+#define SPEED 12.0
 #define ID 2
-
 #define MIN_RADIUS 25
-#define ANGULAR_TOL 0.2
-#define CLUSTER_DIST 85
+#define ANGULAR_TOL 0.5
+#define CLUSTER_DIST 100
 #define CLUSTER_AGGR_DIST 10
 #define SCAN_NUMBER 20
 #define CLOSE_TO_ERROR 10
@@ -13,8 +12,10 @@
 #define MOVE_TRIANGLE_SECONDS 3
 #define DISTANCE_BETWEEN_ROBOTS 10
 #define DISTANCE_BETWEEN_ROBOTS_ERROR 5
-#define SCAN_SAMPLE_NUMBER 2
+#define SCAN_SAMPLE_NUMBER 10
 #define DUMMY_FUNCTION_INTERVAL { 10, target_angle }
+#define INITIAL_STATE CALIBRATION
+
 
 // Macro per configurazione
 #if ID == 1
@@ -41,9 +42,6 @@ double dummy_function(double error,double interval[], double a = 2,double max_ve
         return constrain(a * error,min_velocity,max_velocity);
     }
 }
-
-
-
 
 /* ------------------- */
 
@@ -92,7 +90,7 @@ Entity::Entity(uint16_t enc_l_port, uint16_t enc_r_port, uint16_t ultra_port, ui
 
   // === Stati iniziali ===
   last_state = NULL;
-  internal_state = CALIBRATION;
+  internal_state = INITIAL_STATE;
 
   
 }
@@ -135,8 +133,7 @@ static void Entity::isr_encoder_right() {
 
 double Entity::get_velocity(WheelSide wheel) {
   encoder_left.updateSpeed();
-  encoder_right.updateSpeed();
-  
+  encoder_right.updateSpeed();  
   return wheel == LEFT_WHEEL ? encoder_left.getCurrentSpeed() : encoder_right.getCurrentSpeed(); 
 }
 
@@ -146,6 +143,9 @@ void Entity::actions() {
 
   if(internal_state == CALIBRATION)
   {
+
+    Serial.println("STO FACENDO CALIBRAZIONE");
+    
     // pid calibration
     for(int i = 0; i< 4; i++)
       turn_at(90);
@@ -158,6 +158,8 @@ void Entity::actions() {
 
 
   if (internal_state == SCAN) {
+    
+    this->last_state  = GAT;
     scan(SCAN_NUMBER);
 
     this->internal_map.serial_print();
@@ -265,19 +267,26 @@ void Entity::actions() {
     encoder_left.loop();
     encoder_right.loop();
     
-
     Serial.print("MIN_RADIUS");
-    auto until_min_raius = [this](double seconds) {
+    
+    auto until_min_radius = [this](double seconds) {
       double current_dist = ultra.distanceCm();
-      return (current_dist <= MIN_RADIUS) || ((seconds/1000) < (center_gravity.get_vnorm() / SPEED));
+      
+      
+      Serial.println("DISTANZA ATTUALE");
+      Serial.println(current_dist);
+      Serial.println("SEcondi rimasti");
+      Serial.println(center_gravity.get_vnorm() / SPEED);
+
+      return (current_dist <= MIN_RADIUS) || ((seconds/1000) >= ((center_gravity.get_vnorm() - 10) / SPEED));
     };
 
     // _---- quando passa da turn at a move until fa un po quello che vuole 
     // da capire perchè
 
     
-    move_until(until_min_raius);
-    set_state(SCAN);
+    move_until(until_min_radius);
+    set_state(SLEEP);
   }
 
   if (internal_state == MASTER) {
@@ -339,7 +348,7 @@ void Entity::actions() {
 
     double opposite_angle_measure = st_line.evaluate(-1).get_y() > st_line.evaluate(1).get_y() ? direction.get_vdegree() + 180 : direction.get_vdegree();
 
-    turn_at(opposite_angle_measure);
+    turn_at(opposite_angle_measure >= 360 ? opposite_angle_measure - 360:opposite_angle_measure);
 
     Serial.println("OPPOSITE ANGLE");
     Serial.print(opposite_angle_measure);
@@ -515,7 +524,16 @@ void Entity::scan(int sample_measurement) {
   int i = 0;
   do {
     double distance = get_avg_distance(SCAN_SAMPLE_NUMBER);
+
     internal_map.push_back({ angle, distance });
+    
+    Serial.println("--------------");
+    Serial.print("SCANSIONE:");
+    Serial.print(i);
+    Serial.println(angle);
+    Serial.println(distance);
+    Serial.println("--------------");
+    
     angle = angle + delta_angle;
 
     turn_at(delta_angle);
@@ -527,6 +545,9 @@ void Entity::scan(int sample_measurement) {
 
 double Entity::get_avg_distance(int n_sample) {
   
+    // utilizzando la moda possiamo ottenere migliori risultati in caso di interferenze dovute all ultrasuoni
+    // TODO
+    
     if (n_sample < 1) return 0;
     if (n_sample > 50) n_sample = 50;  // evita array troppo grandi
 
@@ -534,7 +555,8 @@ double Entity::get_avg_distance(int n_sample) {
 
     for (int i = 0; i < n_sample; ++i) {
         samples[i] = ultra.distanceCm();
-        delay(0.05);  // utile per stabilizzare la lettura
+        Serial.println("DISTANZA");
+        Serial.println(samples[i]);
     }
 
     for (int i = 0; i < n_sample - 1; ++i) {
@@ -553,7 +575,6 @@ double Entity::get_avg_distance(int n_sample) {
         int mid = n_sample / 2;
         return (samples[mid - 1] + samples[mid]) / 2.0;  // pari
     }
-
 }
 
 double Entity::getPwmForWheel(double vel, Directions dir, WheelSide wheel) {
@@ -572,10 +593,8 @@ double Entity::getPwmForWheel(double vel, Directions dir, WheelSide wheel) {
 
 void Entity::turn_at(double angle) {
 
-  angle += tollerance;
-  double base_left = getPwmForWheel(this->pwm, INVERT, LEFT_WHEEL);
-  double base_right = getPwmForWheel(this->pwm, INVERT, RIGHT_WHEEL);
-  
+  angle += ANGULAR_TOL;
+
   this->gyro.begin();
   
   double start_angle = 0;
@@ -586,16 +605,35 @@ void Entity::turn_at(double angle) {
   double interval[2] DUMMY_FUNCTION_INTERVAL;
   bool first_read = true;
   
-  
   while (fabs(error) > ANGULAR_TOL) {
     this->gyro.update();
 
     double angle_z = first_read?0:this->gyro.getAngleZ();
     first_read = false;
+
+
+    //Serial.println(angle_z);
+
     read_angle = normalizeAngle(angle_z);
 
+    //Serial.println("READ ANGLE");
+    //Serial.println(read_angle);
+    //Serial.println("ERROR");
+    //Serial.println(error);
+
+    //Serial.println("START AGNLE");
+    //Serial.println(start_angle);
+    
+    
     actual_angle = fabs(read_angle - start_angle);
+
   
+    //Serial.println("actual angle");
+    //Serial.println(actual_angle);
+    
+    //Serial.println("TAGET AGNLE ");
+    //Serial.println(target_angle);
+
     error = target_angle - actual_angle;
     
     //per ra
@@ -611,7 +649,6 @@ void Entity::turn_at(double angle) {
     encoder_left.runSpeed(getPwmForWheel(speed, INVERT, LEFT_WHEEL));
     encoder_right.runSpeed(getPwmForWheel(speed, INVERT, LEFT_WHEEL));
     
-
     encoder_left.loop();
     encoder_right.loop();
     this->gyro.update();
