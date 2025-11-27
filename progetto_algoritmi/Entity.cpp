@@ -3,9 +3,9 @@
 #define ID 1
 #define MIN_RADIUS 25
 #define ANGULAR_TOL 0.5
-#define CLUSTER_DIST 100
+#define CLUSTER_DIST 72
 #define CLUSTER_AGGR_DIST 10
-#define SCAN_NUMBER 22
+#define SCAN_NUMBER 25
 #define CLOSE_TO_ERROR 50
 #define DELAY_ERROR 1.5
 #define MOVE_LINE_SECONDS 3
@@ -107,7 +107,7 @@ void Entity::move_at_coord(const Vector2D& v) {
 
   double seconds = v.get_vnorm() / SPEED;
   Serial.println(seconds);
-  this->move_to(STRAIGHT, seconds);
+  this->move_to(STRAIGHT, seconds + 2);
 }
 
 
@@ -150,8 +150,8 @@ void Entity::actions() {
     Serial.println("STO FACENDO CALIBRAZIONE");
     
     // pid calibration
-    for(int i = 0; i< 4; i++)
-      turn_at(90);
+    //for(int i = 0; i< 4; i++)
+      turn_at(357);
     
     set_state(SCAN);
 
@@ -306,7 +306,7 @@ void Entity::actions() {
     
     Vector2D w = w_1.get_vnorm() > w_2.get_vnorm()? w_2:w_1;
 
-    Vector2D h = distance_between_vectors(v, u);
+    Vector2D h = distance_between_vectors(u, v);
 
     Serial.println("U");
 
@@ -340,9 +340,14 @@ void Entity::actions() {
     Serial.println(st_line.evaluate(-1).get_y());
     Serial.print("1: ");
     Serial.println(st_line.evaluate(1).get_y());
+
     double opposite_angle_measure = st_line.evaluate(-1).get_y() > st_line.evaluate(1).get_y() ? direction.get_vdegree() + 180 : direction.get_vdegree();
 
-    turn_at(opposite_angle_measure);
+    Serial.println(opposite_angle_measure);
+    // TODO: CHECK IL VALORE DELL ANGOLO
+    opposite_angle_measure = opposite_angle_measure > 360 ? opposite_angle_measure - 360 : opposite_angle_measure;
+    turn_at(5);
+    turn_at(opposite_angle_measure-5);
 
     Serial.println("OPPOSITE ANGLE");
     Serial.print(opposite_angle_measure);
@@ -368,7 +373,7 @@ void Entity::actions() {
 
     Vector2D distance_1_vector = triangle[0];
     Vector2D distance_2_vector = triangle[1];
-    Vector2D distance_3_vector = distance_between_vectors(triangle[0], triangle[1]);
+    Vector2D distance_3_vector = distance_between_vectors(distance_1_vector, distance_2_vector);
 
     Vector2D w = distance_1_vector.get_vnorm() > distance_2_vector.get_vnorm()?distance_1_vector:distance_2_vector;
 
@@ -393,11 +398,15 @@ void Entity::actions() {
 
     Serial.println("STO FACENDO FOLLOWING");
 
-    double first_current_dist = ultra.distanceCm();
+    double first_current_dist = get_avg_distance(SCAN_NUMBER);
+
+    Serial.println("Distanza trovata");
+    Serial.println(first_current_dist);
 
     // SE è + inf la distanza misurata allora sarà quello piu in avanti perforza
 
-    if (!close_to(first_current_dist, direction.get_vnorm(), CLOSE_TO_ERROR)) {
+    //if (!close_to(first_current_dist, direction.get_vnorm(), CLOSE_TO_ERROR)) {
+    if (!close_to(first_current_dist,direction.get_vnorm(), CLOSE_TO_ERROR)) {
       // sono quello davanti
       Serial.println("SONO QUELLO DAVANTI");
       move_to(STRAIGHT, MOVE_LINE_SECONDS);
@@ -566,8 +575,6 @@ double Entity::get_avg_distance(int n_sample) {
 
     for (int i = 0; i < n_sample; ++i) {
         samples[i] = ultra.distanceCm();
-        Serial.println("DISTANZA");
-        Serial.println(samples[i]);
     }
 
     for (int i = 0; i < n_sample - 1; ++i) {

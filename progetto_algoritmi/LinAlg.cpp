@@ -120,31 +120,49 @@ void Vector2D::print_vector()
 
     Serial.println(" END PRINT VECTOR");
 }
-// --- LineParam ---
-LineParam::LineParam(const Vector2D& origin, const Vector2D& direction)
-    : origin(origin), dir(direction) {}
 
-// --- LineParam ---
+LineParam::LineParam(const Vector2D& point_on_line, const Vector2D& direction)
+{
+    origin = point_on_line;
+    dir    = make_unique_direction(direction);
+}
+
 LineParam::LineParam(const Vector2D& direction)
-    : origin({0,0}), dir(direction) {}
+        : LineParam(Vector2D(0,0), direction){}
 
-Vector2D LineParam::evaluate(double t) const {
-    return origin + Vector2D(dir.x * t, dir.y * t);
-}
+Vector2D LineParam::evaluate(double t) const { return origin + Vector2D(dir.x * t, dir.y * t);}
 
-Vector2D LineParam::get_versor() {
-    double norm = dir.get_vnorm();
-    return Vector2D(dir.x / norm, dir.y / norm);
-}
+Vector2D LineParam::get_versor() const {return dir;}
 
 double LineParam::slope() const {
+    if (fabs(dir.x) < 1e-9)
+        return 0; 
     return dir.y / dir.x;
 }
 
-double LineParam::intercept() const {
-    return origin.y - slope() * origin.x;
-}
+Vector2D LineParam::make_unique_direction(const Vector2D& v) const
+{
+    double norm = v.get_vnorm();
 
+    // caso direzione nulla → default verso (1,0)
+    if (norm < 1e-12)
+        return Vector2D(1, 0);
+
+    // versore normale
+    Vector2D u(v.x / norm, v.y / norm);
+
+    // unificazione del verso
+    // 1) se x < 0, inverti
+    // 2) se x == 0 e y < 0, inverti
+    bool x_zero = fabs(u.x) < 1e-9;
+
+    if (u.x < 0 || (x_zero && u.y < 0)) {
+        u.x = -u.x;
+        u.y = -u.y;
+    }
+
+    return u;
+}
 
 
 } // namespace LinAlg
