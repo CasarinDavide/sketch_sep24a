@@ -1,29 +1,29 @@
 #include "Entity.h"
 #define SPEED 12.0
-#define ID 2
+#define ID 1
 #define MIN_RADIUS 25
 #define ANGULAR_TOL 0.5
 #define CLUSTER_DIST 100
 #define CLUSTER_AGGR_DIST 10
-#define SCAN_NUMBER 20
-#define CLOSE_TO_ERROR 10
+#define SCAN_NUMBER 22
+#define CLOSE_TO_ERROR 50
 #define DELAY_ERROR 1.5
 #define MOVE_LINE_SECONDS 3
 #define MOVE_TRIANGLE_SECONDS 3
 #define DISTANCE_BETWEEN_ROBOTS 10
 #define DISTANCE_BETWEEN_ROBOTS_ERROR 5
 #define SCAN_SAMPLE_NUMBER 10
-#define DUMMY_FUNCTION_INTERVAL { 10, target_angle }
+#define DUMMY_FUNCTION_INTERVAL { 15, target_angle }
 #define INITIAL_STATE CALIBRATION
 
 
 // Macro per configurazione
 #if ID == 1
   #define MAX_VEL 60
-  #define MIN_VEL 10
+  #define MIN_VEL 15
 #elif ID == 2
   #define MAX_VEL 40
-  #define MIN_VEL 10
+  #define MIN_VEL 15
 #endif
 
 
@@ -101,6 +101,9 @@ void Entity::move_at_coord(const Vector2D& v) {
   Serial.print("MI STO PROIETTANDO SULLA RETTA");
 
   this->turn_at(v.get_vdegree());
+  Serial.print("turn at per retta: ");
+  Serial.println(v.get_vdegree());
+  
 
   double seconds = v.get_vnorm() / SPEED;
   Serial.println(seconds);
@@ -159,8 +162,9 @@ void Entity::actions() {
 
   if (internal_state == SCAN) {
     
-    this->last_state  = GAT;
+    this->last_state = GAT;
     scan(SCAN_NUMBER);
+    
 
     this->internal_map.serial_print();
 
@@ -223,8 +227,6 @@ void Entity::actions() {
     } else {
       // Robot già raccolti → elezione leader
 
-      // l'abbiamo forzato ricordati !!
-      set_state(MASTER);
 
       if (distance_3 <= distance_2 && distance_3 <= distance_1) {
 
@@ -236,6 +238,9 @@ void Entity::actions() {
         set_state(SLAVE);
         direction = distance_1 < distance_2 ? distance_1_vector : distance_2_vector;
       }
+      
+      // l'abbiamo forzato ricordati !!
+      //set_state(MASTER);
 
       Serial.println("INTERNAL STATE");
       Serial.println(internal_state == SLAVE ? "SCHIAVO" : "MASTER");
@@ -330,6 +335,11 @@ void Entity::actions() {
     Serial.println("DIRECTION GET V DEGREE");
     Serial.println(direction.get_vdegree());
     
+    Serial.println("STO GIRANDO VERSO LA CRESCENZA");
+    Serial.print("-1: ");
+    Serial.println(st_line.evaluate(-1).get_y());
+    Serial.print("1: ");
+    Serial.println(st_line.evaluate(1).get_y());
     double opposite_angle_measure = st_line.evaluate(-1).get_y() > st_line.evaluate(1).get_y() ? direction.get_vdegree() + 180 : direction.get_vdegree();
 
     turn_at(opposite_angle_measure);
@@ -389,11 +399,12 @@ void Entity::actions() {
 
     if (!close_to(first_current_dist, direction.get_vnorm(), CLOSE_TO_ERROR)) {
       // sono quello davanti
+      Serial.println("SONO QUELLO DAVANTI");
       move_to(STRAIGHT, MOVE_LINE_SECONDS);
       move_to_triangle(direction, DISTANCE_BETWEEN_ROBOTS, HEAD);
       move_to(STRAIGHT, MOVE_TRIANGLE_SECONDS);
       back_to_line(direction, DISTANCE_BETWEEN_ROBOTS, HEAD);
-    } 
+    }
     else {
     
       // se quello davanti ha già iniziato 
@@ -529,7 +540,7 @@ void Entity::scan(int sample_measurement) {
     
     Serial.println("--------------");
     Serial.print("SCANSIONE:");
-    Serial.print(i);
+    Serial.println(i);
     Serial.println(angle);
     Serial.println(distance);
     Serial.println("--------------");
@@ -540,7 +551,7 @@ void Entity::scan(int sample_measurement) {
     i++;
   } while (i < sample_measurement);
 
-  turn_at(delta_angle);
+  turn_at(delta_angle + (ANGULAR_TOL*sample_measurement));
 }
 
 double Entity::get_avg_distance(int n_sample) {
@@ -758,13 +769,6 @@ void Entity::follow(double min_dist,double seconds)
   encoder_left.loop();
   encoder_right.loop();
 }
-
-
-void Entity::reset_motors_pid(){
-  encoder_left.resetPID();
-  encoder_right.resetPID();;
-}
-
 
 
 void Entity::move_to_triangle(LineParam pt,double distance, EntityState state)

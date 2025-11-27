@@ -82,7 +82,7 @@ Vector2D& Vector2D::operator=(const Vector2D& v) {
 }
 
 double Vector2D::get_vnorm() const { return v_norm; }
-double Vector2D::get_vdegree() const {return v_degree < 0? 360+v_degree:v_degree; }
+double Vector2D::get_vdegree() const {return v_degree < 0 ? 360+v_degree:v_degree; }
 double Vector2D::get_x() const { return x; }
 double Vector2D::get_y() const { return y; }
 

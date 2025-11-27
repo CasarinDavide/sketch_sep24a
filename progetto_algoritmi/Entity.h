@@ -115,6 +115,4 @@ private:
     template <typename Func>
     double corrected_pwm(double base_pwm, double error, double K, bool isLeft,Func corrector);
     double normalizeAngle(double angle);
-
-    void reset_motors_pid();
 };
