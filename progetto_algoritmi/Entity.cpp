@@ -1,17 +1,17 @@
 #include "Entity.h"
-#define SPEED 12.0
+#define SPEED 13.0
 #define ID 1
 #define MIN_RADIUS 25
 #define ANGULAR_TOL 0.5
 #define CLUSTER_DIST 72
 #define CLUSTER_AGGR_DIST 10
 #define SCAN_NUMBER 25
-#define CLOSE_TO_ERROR 50
+#define CLOSE_TO_ERROR 100
 #define DELAY_ERROR 1.5
 #define MOVE_LINE_SECONDS 3
 #define MOVE_TRIANGLE_SECONDS 3
 #define DISTANCE_BETWEEN_ROBOTS 10
-#define DISTANCE_BETWEEN_ROBOTS_ERROR 5
+#define DISTANCE_BETWEEN_ROBOTS_ERROR 10
 #define SCAN_SAMPLE_NUMBER 10
 #define DUMMY_FUNCTION_INTERVAL { 15, target_angle }
 #define INITIAL_STATE CALIBRATION
@@ -19,8 +19,8 @@
 
 // Macro per configurazione
 #if ID == 1
-  #define MAX_VEL 60
-  #define MIN_VEL 15
+  #define MAX_VEL 80
+  #define MIN_VEL 20
 #elif ID == 2
   #define MAX_VEL 40
   #define MIN_VEL 15
@@ -96,19 +96,6 @@ Entity::Entity(uint16_t enc_l_port, uint16_t enc_r_port, uint16_t ultra_port, ui
 }
 
 
-void Entity::move_at_coord(const Vector2D& v) {
-
-  Serial.print("MI STO PROIETTANDO SULLA RETTA");
-
-  this->turn_at(v.get_vdegree());
-  Serial.print("turn at per retta: ");
-  Serial.println(v.get_vdegree());
-  
-
-  double seconds = v.get_vnorm() / SPEED;
-  Serial.println(seconds);
-  this->move_to(STRAIGHT, seconds + 2);
-}
 
 
 static void Entity::isr_encoder_left() {
@@ -138,6 +125,22 @@ double Entity::get_velocity(WheelSide wheel) {
   encoder_left.updateSpeed();
   encoder_right.updateSpeed();  
   return wheel == LEFT_WHEEL ? encoder_left.getCurrentSpeed() : encoder_right.getCurrentSpeed(); 
+}
+
+
+
+void Entity::move_at_coord(const Vector2D& v) {
+
+  Serial.print("MI STO PROIETTANDO SULLA RETTA");
+
+  this->turn_at(v.get_vdegree());
+  Serial.print("turn at per retta: ");
+  Serial.println(v.get_vdegree());
+  
+
+  double seconds = v.get_vnorm() / SPEED;
+  Serial.println(seconds);
+  this->move_to(STRAIGHT, seconds + 2);
 }
 
 void Entity::actions() {
@@ -346,8 +349,7 @@ void Entity::actions() {
     Serial.println(opposite_angle_measure);
     // TODO: CHECK IL VALORE DELL ANGOLO
     opposite_angle_measure = opposite_angle_measure > 360 ? opposite_angle_measure - 360 : opposite_angle_measure;
-    turn_at(5);
-    turn_at(opposite_angle_measure-5);
+    turn_at(opposite_angle_measure);
 
     Serial.println("OPPOSITE ANGLE");
     Serial.print(opposite_angle_measure);
@@ -382,7 +384,6 @@ void Entity::actions() {
     
     double seconds_to_wait = w_1.get_vnorm() > w_2.get_vnorm()?w_2.get_vnorm() / SPEED:w_1.get_vnorm() / SPEED;
     
-    
     Serial.println(seconds_to_wait);
 
     delay(seconds_to_wait + DELAY_ERROR);
@@ -406,7 +407,7 @@ void Entity::actions() {
     // SE è + inf la distanza misurata allora sarà quello piu in avanti perforza
 
     //if (!close_to(first_current_dist, direction.get_vnorm(), CLOSE_TO_ERROR)) {
-    if (!close_to(first_current_dist,direction.get_vnorm(), CLOSE_TO_ERROR)) {
+    if (!close_to(first_current_dist, direction.get_vnorm(), CLOSE_TO_ERROR)) {
       // sono quello davanti
       Serial.println("SONO QUELLO DAVANTI");
       move_to(STRAIGHT, MOVE_LINE_SECONDS);
@@ -425,9 +426,18 @@ void Entity::actions() {
 
       // busy-waiting
       while (!has_started) {
-        has_started = first_current_dist < ultra.distanceCm() + DISTANCE_BETWEEN_ROBOTS_ERROR;
+        encoder_left.setMotorPwm(0);
+        encoder_right.setMotorPwm(0);
+        encoder_left.loop();
+        encoder_right.loop();
+        Serial.print("distanza");
+        Serial.println(get_avg_distance(SCAN_NUMBER));
+        has_started = first_current_dist < get_avg_distance(SCAN_NUMBER) + DISTANCE_BETWEEN_ROBOTS_ERROR;
         Serial.println("QUI STO ASPETTANDO");
       }
+
+
+      Serial.println("NON STO PIU ASPETTANDO");
 
       Serial.println("FOLLOW");
       follow(DISTANCE_BETWEEN_ROBOTS, MOVE_LINE_SECONDS);
@@ -445,17 +455,26 @@ void Entity::move_to(Directions dir, double seconds) {
   double vel_left = getPwmForWheel(this->vel, dir, LEFT_WHEEL);
   double vel_right = getPwmForWheel(this->vel, dir, RIGHT_WHEEL);
 
-  unsigned long endTime = millis() + (unsigned long)(seconds * 1000);
   
-  encoder_left.runSpeed(MIN_VEL);
-  encoder_right.runSpeed(MIN_VEL);
-  encoder_left.loop();
-  encoder_right.loop();
+  unsigned long endTime = millis() + (unsigned long)(1000);
+  
+    
+
+  while(millis() < endTime){
+  
+    encoder_left.runSpeed((MAX_VEL + MIN_VEL) / 2);
+    encoder_right.runSpeed((MAX_VEL + MIN_VEL) / 2);
+    encoder_left.loop();
+    encoder_right.loop();
+  }
+  
+  
+  endTime = millis() + (unsigned long)(seconds * 1000);
+  
 
   while (millis() < endTime) {
     encoder_left.runSpeed(vel_left);
-    encoder_right.runSpeed(vel_right);
-    
+    encoder_right.runSpeed(vel_right);    
     encoder_left.loop();
     encoder_right.loop();
   }
@@ -540,7 +559,7 @@ void Entity::delay(double seconds) {
 
 void Entity::scan(int sample_measurement) {
   double angle = 0;
-  double delta_angle = 360 / (double)sample_measurement;
+  double delta_angle = 360.0 / (double)sample_measurement;
   int i = 0;
   do {
     double distance = get_avg_distance(SCAN_SAMPLE_NUMBER);
@@ -611,6 +630,8 @@ double Entity::getPwmForWheel(double vel, Directions dir, WheelSide wheel) {
 
 void Entity::turn_at(double angle) {
 
+  double num_times = angle / 30.0;
+  
   angle += ANGULAR_TOL;
 
   this->gyro.begin();
@@ -749,7 +770,7 @@ void Entity::follow(double min_dist,double seconds)
   while(target_time - elapsed_time > 0)
   {
       elapsed_time = millis();
-      double current_dist = ultra.distanceCm();
+      double current_dist = get_avg_distance(SCAN_NUMBER);
 
       double error = current_dist - min_dist;
       

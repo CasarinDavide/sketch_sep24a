@@ -102,10 +102,9 @@ class LineParam {
      *   In questo modo tutti i vettori paralleli → stessa forma canonica.
      */
     Vector2D make_unique_direction(const Vector2D& v) const;
-
-
-
+    
 };
 
 
+}
 #endif  // LINALG_H
