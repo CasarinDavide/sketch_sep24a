@@ -201,58 +201,20 @@ class Entity:
 
     # follow semplificato
     def follow(self, min_dist, seconds):
-        pass
-        # LineParam st_line(direction);
+        t0 = self.robot.getTime()
 
-        # Serial.println("STO FACENDO FOLLOWING");
+        while self.robot.getTime() - t0 < seconds:
+            current_dist = self.get_avg_distance(SCAN_SAMPLE_NUMBER)
 
-        # double first_current_dist = get_avg_distance(SCAN_NUMBER);
+            error = current_dist - min_dist
 
-        # Serial.println("Distanza trovata");
-        # Serial.println(first_current_dist);
+            if error < 0:
+                self.stop()
+            else:
+                self.set_velocity(MAX_SPEED, MAX_SPEED)
 
-        # // SE è + inf la distanza misurata allora sarà quello piu in avanti perforza
-
-        # //if (!close_to(first_current_dist, direction.get_vnorm(), CLOSE_TO_ERROR)) {
-        # if (!close_to(first_current_dist, direction.get_vnorm(), CLOSE_TO_ERROR)) {
-        # // sono quello davanti
-        # Serial.println("SONO QUELLO DAVANTI");
-        # move_to(STRAIGHT, MOVE_LINE_SECONDS);
-        # move_to_triangle(direction, DISTANCE_BETWEEN_ROBOTS, HEAD);
-        # move_to(STRAIGHT, MOVE_TRIANGLE_SECONDS);
-        # back_to_line(direction, DISTANCE_BETWEEN_ROBOTS, HEAD);
-        # }
-        # else {
-        
-        # // se quello davanti ha già iniziato 
-
-        # Serial.print("DISTANZA");
-        # Serial.println(first_current_dist);
-        
-        # bool has_started = false;
-
-        # // busy-waiting
-        # while (!has_started) {
-        #     encoder_left.setMotorPwm(0);
-        #     encoder_right.setMotorPwm(0);
-        #     encoder_left.loop();
-        #     encoder_right.loop();
-        #     Serial.print("distanza");
-        #     Serial.println(get_avg_distance(SCAN_NUMBER));
-        #     has_started = first_current_dist < get_avg_distance(SCAN_NUMBER) + DISTANCE_BETWEEN_ROBOTS_ERROR;
-        #     Serial.println("QUI STO ASPETTANDO");
-        # }
-
-
-        # Serial.println("NON STO PIU ASPETTANDO");
-
-        # Serial.println("FOLLOW");
-        # follow(DISTANCE_BETWEEN_ROBOTS, MOVE_LINE_SECONDS);
-
-        # move_to_triangle(direction, DISTANCE_BETWEEN_ROBOTS, TAIL);
-        # move_to(STRAIGHT, MOVE_TRIANGLE_SECONDS);
-        # back_to_line(direction, DISTANCE_BETWEEN_ROBOTS, TAIL);
-        
+        self.stop()
+                
     
     def set_state(self,state):
         self.last_state = self.internal_state
@@ -435,6 +397,33 @@ class Entity:
             print("FOLLOWING")
             self.follow(DISTANCE_BETWEEN_ROBOTS, MOVE_LINE_SECONDS)
 
+            st_line = LineParam(direction=self.direction)
+            first_current_dist = self.get_avg_distance(SCAN_SAMPLE_NUMBER)
+            print(f"PRIMA DISTANZA LETTA {first_current_dist}")
+
+            if not close_to(first_current_dist, self.direction.get_vnorm(), CLOSE_TO_ERROR):
+                print("SONO QUELLO DAVANTI")
+                self.move_straight(MOVE_LINE_SECONDS)
+                self.move_to_triangle(st_line, DISTANCE_BETWEEN_ROBOTS, HEAD)
+                self.move_straight(MOVE_TRIANGLE_SECONDS)
+                self.back_to_line(st_line, DISTANCE_BETWEEN_ROBOTS, HEAD)
+            else:
+                has_started = False
+
+                # busy-waiting
+                while not has_started:
+                    self.stop()
+                    current_dist = self.get_avg_distance(SCAN_SAMPLE_NUMBER)
+                    print(f"DISTANZA ATTUALE {current_dist}")
+                    has_started = first_current_dist < (current_dist + DISTANCE_BETWEEN_ROBOTS_ERROR)
+                    print("QUI STO ASPETTANDO")
+                
+                print("NON STO PIU ASPETTANDO")
+                print("FOLLOW")
+                self.follow(DISTANCE_BETWEEN_ROBOTS, MOVE_LINE_SECONDS)
+                self.move_straight(MOVE_TRIANGLE_SECONDS)
+                self.back_to_line(st_line, DISTANCE_BETWEEN_ROBOTS, TAIL)
+                
             return
     
 
