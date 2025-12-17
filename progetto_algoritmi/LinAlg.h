@@ -53,21 +53,58 @@ public:
 
 };
 
-// === Classe LineParam ===
 class LineParam {
-    Vector2D origin;
-    Vector2D dir;
+    public:
+        Vector2D origin;   // un punto sulla retta
+        Vector2D dir;      // direzione UNIVOCAMENTE normalizzata
+    // =======================================
+    //   COSTRUTTORE GENERALE
+    // =======================================
+    LineParam(const Vector2D& point_on_line, const Vector2D& direction);
 
-public:
-    LineParam(const Vector2D& origin, const Vector2D& direction);
+    // =======================================
+    //   COSTRUTTORE: orig = (0,0)
+    // =======================================
     LineParam(const Vector2D& direction);
+
+    // =======================================
+    //   Calcola punto sulla retta
+    // =======================================
     Vector2D evaluate(double t) const;
+
+    // =======================================
+    //   Restituisce il versore (già unico)
+    // =======================================
+    Vector2D get_versor() const;
+
+    // =======================================
+    //   Coefficiente angolare (gestisce verticali)
+    // =======================================
     double slope() const;
-    double intercept() const;
-    Vector2D get_versor();
+
+    private:
+
+    // ==============================================================
+    //   NORMALIZZAZIONE UNIVOCA DEL VETTORE DIREZIONE
+    // ==============================================================
+
+    /**
+     *   make_unique_direction(v)
+     *
+     *   1. normalizza v → versore u
+     *   2. applica convenzione di univocità:
+     *
+     *      - u.x deve essere >= 0
+     *      - se u.x == 0, allora u.y >= 0
+     *
+     *   Inverti u se non rispetta le condizioni.
+     *
+     *   In questo modo tutti i vettori paralleli → stessa forma canonica.
+     */
+    Vector2D make_unique_direction(const Vector2D& v) const;
+    
 };
 
+
 }
-
-
 #endif  // LINALG_H
