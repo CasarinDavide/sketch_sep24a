@@ -9,7 +9,7 @@ from lin_alg import to_radians, to_degree,dot_product,cross_product
 
 TIME_STEP = 32
 DT = TIME_STEP / 1000.0
-MAX_SPEED = 4
+MAX_SPEED = 1
 SPEED = 0.15
 TURN_AT_FRACTION = 0.1
 SLAVE_DELAY_VEL = TURN_AT_FRACTION * MAX_SPEED
@@ -24,11 +24,12 @@ MIN_RADIUS = 20
 CLOSE_TO_ERROR = 10
 DISTANCE_BETWEEN_ROBOTS = 20
 DISTANCE_BETWEEN_ROBOTS_ERROR = 5
-MOVE_TRIANGLE_SECONDS = 2
-MOVE_LINE_SECONDS = 2
+MOVE_TRIANGLE_SECONDS = 20
+MOVE_LINE_SECONDS = 20
 DELAY_ERROR =  2 * 3.14 / SLAVE_DELAY_VEL
 WHEEL_RADIUS = 0.01
 
+MAX_DELAY = 300 
 # stati
 SLEEP = 0
 CALIBRATION = 1
@@ -54,7 +55,14 @@ class Entity:
         self.right.setVelocity(0)
         # sensors
         self.ultra = self.robot.getDevice("distance sensor")
+        self.ultra2 = self.robot.getDevice("distance sensor(1)")
+        self.ultra3 = self.robot.getDevice("distance sensor(2)")
+        self.ultra4 = self.robot.getDevice("distance sensor(3)")
+        
         self.ultra.enable(TIME_STEP)
+        self.ultra2.enable(TIME_STEP)
+        self.ultra3.enable(TIME_STEP)
+        self.ultra4.enable(TIME_STEP) 
         self.gyro = self.robot.getDevice("gyro")
         self.gyro.enable(TIME_STEP)
         # state
@@ -93,17 +101,21 @@ class Entity:
         
         self.stop()
         
-    def move_straight(self, seconds):
+    def move_straight(self, seconds,back = False):
         t0 = self.robot.getTime()
         while self.robot.getTime() - t0 < seconds:
-            self.set_velocity(MAX_SPEED, MAX_SPEED)
+            if back:
+                self.set_velocity(-MAX_SPEED,- MAX_SPEED)
+            else:
+                self.set_velocity(MAX_SPEED, MAX_SPEED)
+            
             if not self.step(): break
         self.stop()
 
     def get_avg_distance(self, n=5):
         vals = []
         for _ in range(n):
-            vals.append(self.ultra.getValue())
+            vals.append(min(self.ultra.getValue(),self.ultra2.getValue(), self.ultra3.getValue(), self.ultra4.getValue()))
             if not self.step(): break
         vals.sort()
         m = len(vals)
@@ -157,49 +169,60 @@ class Entity:
 
     # ---- MOVIMENTO TRIANGOLO E RITORNO (TRADUZIONE DIRETTA) ----
     def move_to_triangle(self, pt: LineParam, distance: float, state_flag):
-        vector_1 = pt.get_versor() * distance
+        vector_1 = Vector2D(1,0) * -1 * distance
         ortogonal_vector = Vector2D(vector_1.y, -vector_1.x)
         # projection = vector_1 + ortogonal_vector;
+        
         projection = vector_1 + ortogonal_vector
 
         if state_flag == HEAD:
             # esegui move_at_coord sul vettore di proiezione
             self.move_at_coord(projection)
-            projection_deg = 180 - projection.get_vdegree()
             deg_to_turn = projection.get_vdegree() - 90
             # turn_at(360-deg_to_turn);
             self.turn_at(360 - deg_to_turn)
-        else:
+        else:   
             # lo slave usa un semplice turn + delay (approssimazione)
             self.turn_at(90)
             time = projection.get_vnorm() / MAX_SPEED
-            # delay simulata con step loop
-            t0 = self.robot.getTime()
-            while self.robot.getTime() - t0 < time + 1.5:
-                if not self.step(): break
-
+            self.delay(time + 1.5 + 2* DELAY_ERROR)
+            
     def back_to_line(self, pt: LineParam, distance: float, state_flag):
-        vector_1 = pt.get_versor() * distance
+        vector_1 = Vector2D(1,0) * -1 * distance
         ortogonal_vector = Vector2D(vector_1.y, -vector_1.x)
         projection = vector_1 + ortogonal_vector
 
         if state_flag == HEAD:
             projection_deg = 180 - projection.get_vdegree()
             deg_to_turn = projection.get_vdegree() - 90
-            self.turn_at(180 - deg_to_turn)
+            
+            self.turn_at(270)
+            
             go_back_vec = Vector2D(projection.get_vnorm(), 180 - deg_to_turn, 0)
             # go_back_vec è costruito con costruttore polare (radius, alpha, int)
             # ma la nostra Vector2D prende (x,y) salvo flag; quindi ricostruiamo
-            go_back = Vector2D(go_back_vec.x, go_back_vec.y)
+            go_back =  Vector2D(go_back_vec.x, go_back_vec.y) * - 1
+            
+
             self.move_at_coord(go_back)
+            
+            self.turn_at(deg_to_turn);
         else:
             self.turn_at(270)
-            time = projection.get_vnorm() / MAX_SPEED
-            t0 = self.robot.getTime()
-            while self.robot.getTime() - t0 < time + 1.5:
-                if not self.step(): break
+            has_started = False
+            first_current_dist = self.get_avg_distance(SCAN_SAMPLE_NUMBER)
+            # busy-waiting
+            while not has_started:
+                self.stop()
+                current_dist = self.get_avg_distance(SCAN_SAMPLE_NUMBER)
+                print(f"DISTANZA ATTUALE {current_dist}")
+                has_started = current_dist < first_current_dist
+                print("QUI STO ASPETTANDO")
 
-    # follow semplificato
+            self.delay(DELAY_ERROR)
+
+
+                
     def follow(self, min_dist, seconds):
         t0 = self.robot.getTime()
 
@@ -222,7 +245,7 @@ class Entity:
 
     def actions(self):
         
-        self.last_state = GAT
+        #self.last_state = GAT
 
         if self.internal_state == SLEEP:
             return 
@@ -250,29 +273,7 @@ class Entity:
 
             self.center_gravity = get_avg_center(self.triangle)
 
-            v1 = self.triangle[0]
-            v2 = self.triangle[1]
-            v3 = distance_between_vectors_vec(v1, v2)
-
-            d1 = v1.get_vnorm()
-            d2 = v2.get_vnorm()
-            d3 = v3.get_vnorm()
-
-            if close_to(d1, d2, CLOSE_TO_ERROR) and close_to(d2, d3, CLOSE_TO_ERROR):
-                print("Equilateral (TODO random_walk)")
-
-            if self.last_state != GAT:
-                self.set_state(GAT)
-            else:
-                if d3 <= d2 and d3 <= d1:
-                    self.internal_state = MASTER
-                    self.direction = v3
-                    print("SONO MASTER")
-
-                else:
-                    self.internal_state = SLAVE
-                    self.direction = v1 if d1 < d2 else v2
-                    print("SONO SLAVE")
+            self.evaluate_metrics()
                     
         if self.internal_state == GAT:
             bari_angle = self.center_gravity.get_vdegree();
@@ -281,13 +282,23 @@ class Entity:
 
             self.turn_at(norm_bari_angle);
             
-            def until_min_radius(seconds):
-                current_dist = self.get_avg_distance(10)
-                return (current_dist <= MIN_RADIUS) or ((seconds) >= ((self.center_gravity.get_vnorm() - 10) / (MAX_SPEED)))
+            elapsed_seconds = 0 
 
-            self.move_until(until_min_radius)    
-            self.set_state(SLEEP)
+            def until_min_radius(seconds):
+                nonlocal elapsed_seconds
+                elapsed_seconds = seconds
+                current_dist = self.get_avg_distance(SCAN_SAMPLE_NUMBER)
+                return (current_dist <= MIN_RADIUS) or ((seconds) >= ((self.center_gravity.get_vnorm() - 10) / (MAX_SPEED)))
             
+            self.move_until(until_min_radius)
+            
+            self.delay(1.3 * MAX_DELAY)
+
+            self.move_straight(elapsed_seconds,back=True)
+            
+            self.turn_at(360 - norm_bari_angle)
+
+            self.evaluate_metrics()
 
         if self.internal_state == MASTER:
 
@@ -296,9 +307,7 @@ class Entity:
             u : Vector2D = self.triangle[0];
             v : Vector2D = self.triangle[1];
             
-            u.print_vector()
-            v.print_vector()
-            
+          
             # possiamo scegliere la direzione da andare, prendiamo sempre quella con la norma più bassa
             w_1 = distance_between_vectors_vec(u * 2.0, v)
             w_2 = distance_between_vectors_vec(v * 2.0, u)
@@ -353,11 +362,6 @@ class Entity:
             return
 
         if self.internal_state == SLAVE:
-            print("SLAVE: waiting then following")
-            # delay approssimato
-
-            print("DIREZIONE")
-            self.direction.print_vector()
             
             v1 = self.triangle[0]
             v2 = self.triangle[1]
@@ -387,44 +391,80 @@ class Entity:
             
             seconds_to_wait = w_2.get_vnorm() / MAX_SPEED if w_1.get_vnorm() > w_2.get_vnorm() else w_1.get_vnorm() / MAX_SPEED
             
-            self.delay(seconds_to_wait + DELAY_ERROR)
+            first_current_dist = self.get_avg_distance(SCAN_SAMPLE_NUMBER)
+            has_started = False
+            # busy-waiting
+            while not has_started:
+                self.stop()
+                current_dist = self.get_avg_distance(SCAN_SAMPLE_NUMBER)
+                has_started = current_dist < first_current_dist
+
+            self.delay(DELAY_ERROR)
 
             self.set_state(FOLLOWING)
 
             return
 
         if self.internal_state == FOLLOWING:
-            print("FOLLOWING")
-            self.follow(DISTANCE_BETWEEN_ROBOTS, MOVE_LINE_SECONDS)
-
             st_line = LineParam(direction=self.direction)
             first_current_dist = self.get_avg_distance(SCAN_SAMPLE_NUMBER)
-            print(f"PRIMA DISTANZA LETTA {first_current_dist}")
 
-            if not close_to(first_current_dist, self.direction.get_vnorm(), CLOSE_TO_ERROR):
-                print("SONO QUELLO DAVANTI")
-                self.move_straight(MOVE_LINE_SECONDS)
-                self.move_to_triangle(st_line, DISTANCE_BETWEEN_ROBOTS, HEAD)
-                self.move_straight(MOVE_TRIANGLE_SECONDS)
-                self.back_to_line(st_line, DISTANCE_BETWEEN_ROBOTS, HEAD)
+            print(first_current_dist)
+            if first_current_dist >= 400:
+
+                while(True):
+                    self.move_straight(MOVE_LINE_SECONDS)
+                    self.move_to_triangle(st_line,self.direction.get_vnorm() + DISTANCE_BETWEEN_ROBOTS, HEAD)
+                    self.move_straight(MOVE_TRIANGLE_SECONDS)
+                    self.back_to_line(st_line,self.direction.get_vnorm() + DISTANCE_BETWEEN_ROBOTS, HEAD)
+                    
             else:
-                has_started = False
-
-                # busy-waiting
-                while not has_started:
-                    self.stop()
-                    current_dist = self.get_avg_distance(SCAN_SAMPLE_NUMBER)
-                    print(f"DISTANZA ATTUALE {current_dist}")
-                    has_started = first_current_dist < (current_dist + DISTANCE_BETWEEN_ROBOTS_ERROR)
-                    print("QUI STO ASPETTANDO")
                 
-                print("NON STO PIU ASPETTANDO")
-                print("FOLLOW")
-                self.follow(DISTANCE_BETWEEN_ROBOTS, MOVE_LINE_SECONDS)
-                self.move_straight(MOVE_TRIANGLE_SECONDS)
-                self.back_to_line(st_line, DISTANCE_BETWEEN_ROBOTS, TAIL)
+                
+                while(True):
+
+                    has_started = False
+
+                    # busy-waiting
+                    while not has_started:
+                        self.stop()
+                        current_dist = self.get_avg_distance(SCAN_SAMPLE_NUMBER)
+                        has_started = current_dist > (first_current_dist + DISTANCE_BETWEEN_ROBOTS_ERROR)
+                    
+                    self.follow(DISTANCE_BETWEEN_ROBOTS, MOVE_LINE_SECONDS)
+                    
+                    self.move_to_triangle(st_line,self.direction.get_vnorm() + DISTANCE_BETWEEN_ROBOTS, TAIL)
+                    
+                    self.move_straight(MOVE_TRIANGLE_SECONDS)
+
+                    self.back_to_line(st_line,  self.direction.get_vnorm() + DISTANCE_BETWEEN_ROBOTS, TAIL)
                 
             return
+
+    def evaluate_metrics(self):
+        v1 = self.triangle[0]
+        v2 = self.triangle[1]
+        v3 = distance_between_vectors_vec(v1, v2)
+
+        d1 = v1.get_vnorm()
+        d2 = v2.get_vnorm()
+        d3 = v3.get_vnorm()
+
+        if close_to(d1, d2, CLOSE_TO_ERROR) and close_to(d2, d3, CLOSE_TO_ERROR):
+            print("Equilateral (TODO random_walk)")
+        
+        if self.internal_state == SCAN:
+            self.set_state(GAT)
+        else:
+            if d3 <= d2 and d3 <= d1:
+                self.internal_state = MASTER
+                self.direction = v3
+                print("SONO MASTER")
+
+            else:
+                self.internal_state = SLAVE
+                self.direction = v1 if d1 < d2 else v2
+                print("SONO SLAVE")
     
 
     def move_until(self, stopping_criteria, forward=True):
