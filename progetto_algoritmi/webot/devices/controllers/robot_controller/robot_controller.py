@@ -307,12 +307,14 @@ class Entity:
             u : Vector2D = self.triangle[0];
             v : Vector2D = self.triangle[1];
             
-          
             # possiamo scegliere la direzione da andare, prendiamo sempre quella con la norma più bassa
             w_1 = distance_between_vectors_vec(u * 2.0, v)
             w_2 = distance_between_vectors_vec(v * 2.0, u)
+        
+
+            dot_prod2 = dot_product(w_2,self.direction)
             
-            w = w_2 if w_1.get_vnorm() > w_2.get_vnorm() else w_1
+            w = w_2 if dot_prod2 > 0 else w_1
 
             h = distance_between_vectors_vec(u, v)
 
@@ -352,10 +354,18 @@ class Entity:
                 print("1: ")
                 print(st_line.evaluate(1).get_y())            
             
-            opposite_angle_measure = self.direction.get_vdegree() + 180   if st_line.evaluate(-1).get_y() > st_line.evaluate(1).get_y() else self.direction.get_vdegree();
-            self.turn_at(opposite_angle_measure)
+            v1 = self.triangle[0]
+            v2 = self.triangle[1]
+            d1 = v1.get_vnorm()
+            d2 = v2.get_vnorm()
 
-            opposite_angle_measure = opposite_angle_measure - 360  if opposite_angle_measure > 360 else opposite_angle_measure;
+            other = v1 if d1 < d2 else v2
+
+            dt_prod = cross_product(self.direction,other)
+
+            opposite_angle_measure = self.direction.get_vdegree() + 180 if dt_prod < 0 else self.direction.get_vdegree()
+
+            self.turn_at(opposite_angle_measure - 360 if opposite_angle_measure >= 360 else opposite_angle_measure)
 
             self.set_state(FOLLOWING)
 
@@ -373,7 +383,6 @@ class Entity:
             dt_prod = cross_product(other, self.direction)
             # dt_prod = dot_product(Vector2D(1,0),self.direction)
 
-           
             opposite_angle_measure = self.direction.get_vdegree() + 180 if dt_prod < 0 else self.direction.get_vdegree()
 
             self.turn_at(opposite_angle_measure - 360 if opposite_angle_measure >= 360 else opposite_angle_measure)
@@ -409,8 +418,7 @@ class Entity:
             st_line = LineParam(direction=self.direction)
             first_current_dist = self.get_avg_distance(SCAN_SAMPLE_NUMBER)
 
-            print(first_current_dist)
-            if first_current_dist >= 400:
+            if first_current_dist == 400:
 
                 while(True):
                     self.move_straight(MOVE_LINE_SECONDS)
@@ -457,8 +465,15 @@ class Entity:
             self.set_state(GAT)
         else:
             if d3 <= d2 and d3 <= d1:
+                
                 self.internal_state = MASTER
-                self.direction = v3
+                
+                if(cross_product(v1,v2) > 0):
+                    self.direction = v3
+                else:
+                    self.direction = v3 * -1 
+
+
                 print("SONO MASTER")
 
             else:
