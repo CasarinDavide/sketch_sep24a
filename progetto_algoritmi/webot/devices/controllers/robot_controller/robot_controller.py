@@ -3,7 +3,7 @@ from controller import Robot, Motor, DistanceSensor, Gyro
 # entity.py
 import math
 from controller import Robot
-import random 
+import random
 from lin_alg import Vector2D, LineParam, get_avg_center, distance_between_vectors_vec, close_to
 from lin_alg import to_radians, to_degree,dot_product,cross_product
 
@@ -29,7 +29,7 @@ MOVE_LINE_SECONDS = 20
 DELAY_ERROR =  2 * 3.14 / SLAVE_DELAY_VEL
 WHEEL_RADIUS = 0.01
 
-MAX_DELAY = 300 
+MAX_DELAY = 300
 # stati
 SLEEP = 0
 CALIBRATION = 1
@@ -38,8 +38,6 @@ GAT = 3
 MASTER = 4
 SLAVE = 5
 FOLLOWING = 6
-HEAD = 7
-TAIL = 8
 
 class Entity:
     def __init__(self):
@@ -58,11 +56,11 @@ class Entity:
         self.ultra2 = self.robot.getDevice("distance sensor(1)")
         self.ultra3 = self.robot.getDevice("distance sensor(2)")
         self.ultra4 = self.robot.getDevice("distance sensor(3)")
-        
+
         self.ultra.enable(TIME_STEP)
         self.ultra2.enable(TIME_STEP)
         self.ultra3.enable(TIME_STEP)
-        self.ultra4.enable(TIME_STEP) 
+        self.ultra4.enable(TIME_STEP)
         self.gyro = self.robot.getDevice("gyro")
         self.gyro.enable(TIME_STEP)
         # state
@@ -72,6 +70,7 @@ class Entity:
         self.triangle = []
         self.center_gravity = Vector2D()
         self.direction = Vector2D()
+        self.is_master = False
 
     def step(self):
         return self.robot.step(TIME_STEP) != -1
@@ -90,26 +89,59 @@ class Entity:
         while self.step():
             gz = self.gyro.getValues()[2]
             rotated += gz * DT
-            
+
             if angle_deg > 0:
                 self.set_velocity(-TURN_AT_FRACTION * MAX_SPEED, TURN_AT_FRACTION *MAX_SPEED)
             else:
                 self.set_velocity(TURN_AT_FRACTION * MAX_SPEED, -TURN_AT_FRACTION * MAX_SPEED)
-                
+
             if abs(rotated) >= abs(target):
                 break
-        
+
         self.stop()
-        
-    def move_straight(self, seconds,back = False):
+
+    def move_straight(self, seconds, back=False):
+        angle = 0.0          # L'errore attuale (theta)
+        last_angle = 0.0     # Errore al passo precedente
+        integral = 0.0       # Somma degli errori nel tempo
+
+        Kp = 0.2    # Risposta immediata all'errore
+        Ki = 0.01   # Correzione errori costanti nel tempo
+        Kd = 0.1    # Smorzamento delle oscillazioni
+
+        base_speed = -MAX_SPEED if back else MAX_SPEED
         t0 = self.robot.getTime()
+
+
         while self.robot.getTime() - t0 < seconds:
-            if back:
-                self.set_velocity(-MAX_SPEED,- MAX_SPEED)
+
+            gyro_rate = self.gyro.getValues()[2]
+            angle += gyro_rate * DT
+
+            error = angle # Il nostro obiettivo è 0 gradi
+            integral += error * DT
+            derivative = (error - last_angle) / DT
+            last_angle = error
+
+            correction = (Kp * error) + (Ki * integral) + (Kd * derivative)
+
+            if not back:
+                left_speed  = base_speed + correction
+                right_speed = base_speed - correction
             else:
-                self.set_velocity(MAX_SPEED, MAX_SPEED)
-            
-            if not self.step(): break
+                left_speed  = base_speed - correction
+                right_speed = base_speed + correction
+
+            self.set_velocity(left_speed, right_speed)
+
+            # Debugging
+            if self._debugger_:
+                print(f"T: Ang: {angle:.4f} | Corr: {correction:.3f}")
+                print(f"L: {left_speed:.2f} R: {right_speed:.2f}")
+
+            if not self.step():
+                break
+
         self.stop()
 
     def get_avg_distance(self, n=5):
@@ -168,44 +200,40 @@ class Entity:
         self.move_straight(seconds)
 
     # ---- MOVIMENTO TRIANGOLO E RITORNO (TRADUZIONE DIRETTA) ----
-    def move_to_triangle(self, pt: LineParam, distance: float, state_flag):
+    def move_to_triangle(self, distance: float):
         vector_1 = Vector2D(1,0) * -1 * distance
         ortogonal_vector = Vector2D(vector_1.y, -vector_1.x)
-        # projection = vector_1 + ortogonal_vector;
-        
+
         projection = vector_1 + ortogonal_vector
 
-        if state_flag == HEAD:
+        if self.last_state == MASTER:
             # esegui move_at_coord sul vettore di proiezione
             self.move_at_coord(projection)
             deg_to_turn = projection.get_vdegree() - 90
-            # turn_at(360-deg_to_turn);
             self.turn_at(360 - deg_to_turn)
-        else:   
+        else:
             # lo slave usa un semplice turn + delay (approssimazione)
             self.turn_at(90)
             time = projection.get_vnorm() / MAX_SPEED
             self.delay(time + 1.5 + 2* DELAY_ERROR)
-            
-    def back_to_line(self, pt: LineParam, distance: float, state_flag):
+
+    def back_to_line(self, distance: float):
         vector_1 = Vector2D(1,0) * -1 * distance
         ortogonal_vector = Vector2D(vector_1.y, -vector_1.x)
         projection = vector_1 + ortogonal_vector
 
-        if state_flag == HEAD:
-            projection_deg = 180 - projection.get_vdegree()
+        if self.last_state == MASTER:
             deg_to_turn = projection.get_vdegree() - 90
-            
+
             self.turn_at(270)
-            
+
             go_back_vec = Vector2D(projection.get_vnorm(), 180 - deg_to_turn, 0)
             # go_back_vec è costruito con costruttore polare (radius, alpha, int)
             # ma la nostra Vector2D prende (x,y) salvo flag; quindi ricostruiamo
             go_back =  Vector2D(go_back_vec.x, go_back_vec.y) * - 1
-            
 
             self.move_at_coord(go_back)
-            
+
             self.turn_at(deg_to_turn);
         else:
             self.turn_at(270)
@@ -222,7 +250,7 @@ class Entity:
             self.delay(DELAY_ERROR)
 
 
-                
+
     def follow(self, min_dist, seconds):
         t0 = self.robot.getTime()
 
@@ -237,19 +265,17 @@ class Entity:
                 self.set_velocity(MAX_SPEED, MAX_SPEED)
 
         self.stop()
-                
-    
+
+
     def set_state(self,state):
         self.last_state = self.internal_state
         self.internal_state = state
 
     def actions(self):
-        
-        #self.last_state = GAT
 
         if self.internal_state == SLEEP:
-            return 
-        
+            return
+
         if self.internal_state == CALIBRATION:
             self.turn_at(360)
             self.set_state(SCAN)
@@ -274,28 +300,28 @@ class Entity:
             self.center_gravity = get_avg_center(self.triangle)
 
             self.evaluate_metrics()
-                    
+
         if self.internal_state == GAT:
             bari_angle = self.center_gravity.get_vdegree();
 
             norm_bari_angle =  360 + bari_angle if bari_angle < 0 else bari_angle;
 
             self.turn_at(norm_bari_angle);
-            
-            elapsed_seconds = 0 
+
+            elapsed_seconds = 0
 
             def until_min_radius(seconds):
                 nonlocal elapsed_seconds
                 elapsed_seconds = seconds
                 current_dist = self.get_avg_distance(SCAN_SAMPLE_NUMBER)
                 return (current_dist <= MIN_RADIUS) or ((seconds) >= ((self.center_gravity.get_vnorm() - 10) / (MAX_SPEED)))
-            
+
             self.move_until(until_min_radius)
-            
+
             self.delay(1.3 * MAX_DELAY)
 
             self.move_straight(elapsed_seconds,back=True)
-            
+
             self.turn_at(360 - norm_bari_angle)
 
             self.evaluate_metrics()
@@ -306,14 +332,14 @@ class Entity:
             print(self.triangle)
             u : Vector2D = self.triangle[0];
             v : Vector2D = self.triangle[1];
-            
+
             # possiamo scegliere la direzione da andare, prendiamo sempre quella con la norma più bassa
             w_1 = distance_between_vectors_vec(u * 2.0, v)
             w_2 = distance_between_vectors_vec(v * 2.0, u)
-        
+
 
             dot_prod2 = dot_product(w_2,self.direction)
-            
+
             w = w_2 if dot_prod2 > 0 else w_1
 
             h = distance_between_vectors_vec(u, v)
@@ -333,13 +359,13 @@ class Entity:
 
             self.move_at_coord(w)
 
-            if self._debugger_:            
+            if self._debugger_:
                 print("Torno nel punto di partenza")
                 print(360-w.get_vdegree())
 
             self.turn_at(360-w.get_vdegree())
 
-            
+
             self.delay(1)
 
             st_line = LineParam(self.direction)
@@ -347,13 +373,13 @@ class Entity:
             if self._debugger_:
                 print("DIRECTION GET V DEGREE")
                 print(self.direction.get_vdegree())
-                
+
                 print("STO GIRANDO VERSO LA CRESCENZA");
                 print("-1: ")
                 print(st_line.evaluate(-1).get_y())
                 print("1: ")
-                print(st_line.evaluate(1).get_y())            
-            
+                print(st_line.evaluate(1).get_y())
+
             v1 = self.triangle[0]
             v2 = self.triangle[1]
             d1 = v1.get_vnorm()
@@ -372,7 +398,7 @@ class Entity:
             return
 
         if self.internal_state == SLAVE:
-            
+
             v1 = self.triangle[0]
             v2 = self.triangle[1]
             d1 = v1.get_vnorm()
@@ -381,13 +407,12 @@ class Entity:
             other = v1 if d1 >= d2 else v2
 
             dt_prod = cross_product(other, self.direction)
-            # dt_prod = dot_product(Vector2D(1,0),self.direction)
 
             opposite_angle_measure = self.direction.get_vdegree() + 180 if dt_prod < 0 else self.direction.get_vdegree()
 
             self.turn_at(opposite_angle_measure - 360 if opposite_angle_measure >= 360 else opposite_angle_measure)
 
-            # devo aspettare per quando il master ci mette ad arrivare in posizione 
+            # devo aspettare per quando il master ci mette ad arrivare in posizione
 
             distance_1_vector = self.triangle[0]
             distance_2_vector = self.triangle[1]
@@ -397,9 +422,7 @@ class Entity:
 
             w_1 = distance_between_vectors_vec(w*2,distance_3_vector )
             w_2 = distance_between_vectors_vec(distance_3_vector*2, w)
-            
-            seconds_to_wait = w_2.get_vnorm() / MAX_SPEED if w_1.get_vnorm() > w_2.get_vnorm() else w_1.get_vnorm() / MAX_SPEED
-            
+
             first_current_dist = self.get_avg_distance(SCAN_SAMPLE_NUMBER)
             has_started = False
             # busy-waiting
@@ -415,21 +438,16 @@ class Entity:
             return
 
         if self.internal_state == FOLLOWING:
-            st_line = LineParam(direction=self.direction)
-            first_current_dist = self.get_avg_distance(SCAN_SAMPLE_NUMBER)
+            if last_state == MASTER:
 
-            if first_current_dist == 400:
-
-                while(True):
+                for _ in range(2):
                     self.move_straight(MOVE_LINE_SECONDS)
-                    self.move_to_triangle(st_line,self.direction.get_vnorm() + DISTANCE_BETWEEN_ROBOTS, HEAD)
+                    self.move_to_triangle(self.direction.get_vnorm() + DISTANCE_BETWEEN_ROBOTS)
                     self.move_straight(MOVE_TRIANGLE_SECONDS)
-                    self.back_to_line(st_line,self.direction.get_vnorm() + DISTANCE_BETWEEN_ROBOTS, HEAD)
-                    
+                    self.back_to_line(self.direction.get_vnorm() + DISTANCE_BETWEEN_ROBOTS)
+
             else:
-                
-                
-                while(True):
+                for _ in range(2):
 
                     has_started = False
 
@@ -438,15 +456,14 @@ class Entity:
                         self.stop()
                         current_dist = self.get_avg_distance(SCAN_SAMPLE_NUMBER)
                         has_started = current_dist > (first_current_dist + DISTANCE_BETWEEN_ROBOTS_ERROR)
-                    
+
                     self.follow(DISTANCE_BETWEEN_ROBOTS, MOVE_LINE_SECONDS)
-                    
-                    self.move_to_triangle(st_line,self.direction.get_vnorm() + DISTANCE_BETWEEN_ROBOTS, TAIL)
-                    
+                    self.move_to_triangle(self.direction.get_vnorm() + DISTANCE_BETWEEN_ROBOTS)
+
                     self.move_straight(MOVE_TRIANGLE_SECONDS)
 
-                    self.back_to_line(st_line,  self.direction.get_vnorm() + DISTANCE_BETWEEN_ROBOTS, TAIL)
-                
+                    self.back_to_line(self.direction.get_vnorm() + DISTANCE_BETWEEN_ROBOTS)
+
             return
 
     def evaluate_metrics(self):
@@ -460,18 +477,18 @@ class Entity:
 
         if close_to(d1, d2, CLOSE_TO_ERROR) and close_to(d2, d3, CLOSE_TO_ERROR):
             print("Equilateral (TODO random_walk)")
-        
+
         if self.internal_state == SCAN:
             self.set_state(GAT)
         else:
             if d3 <= d2 and d3 <= d1:
-                
+
                 self.internal_state = MASTER
-                
+
                 if(cross_product(v1,v2) > 0):
                     self.direction = v3
                 else:
-                    self.direction = v3 * -1 
+                    self.direction = v3 * -1
 
 
                 print("SONO MASTER")
@@ -480,7 +497,7 @@ class Entity:
                 self.internal_state = SLAVE
                 self.direction = v1 if d1 < d2 else v2
                 print("SONO SLAVE")
-    
+
 
     def move_until(self, stopping_criteria, forward=True):
         """
@@ -501,7 +518,7 @@ class Entity:
 
             if stopping_criteria(elapsed):
                 break
-            
+
             self.set_velocity(vel_l, vel_r)
 
         self.stop()
@@ -516,9 +533,9 @@ class Entity:
         while self.robot.getTime() - start < seconds:
             if not self.step():
                 break
-            
 
-    
+
+
 
 
 # --- MAIN LOOP ---
@@ -529,4 +546,4 @@ robot.delay(random.uniform(0, 2.0))
 while robot.step():
     robot.actions()
 
-    
+
