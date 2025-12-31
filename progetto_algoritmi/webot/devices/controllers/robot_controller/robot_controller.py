@@ -438,7 +438,7 @@ class Entity:
             return
 
         if self.internal_state == FOLLOWING:
-            if last_state == MASTER:
+            if self.last_state == MASTER:
 
                 for _ in range(2):
                     self.move_straight(MOVE_LINE_SECONDS)
@@ -450,6 +450,7 @@ class Entity:
                 for _ in range(2):
 
                     has_started = False
+                    first_current_dist = self.get_avg_distance(SCAN_SAMPLE_NUMBER)
 
                     # busy-waiting
                     while not has_started:
