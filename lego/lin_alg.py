@@ -86,16 +86,16 @@ class Vector2D:
         print("END PRINT VECTOR")
 
 # distance_between_vectors (vector version)
-def distance_between_vectors_vec(a: Vector2D, b: Vector2D):
+def distance_between_vectors_vec(a, b):
 
     a.print_vector()
     b.print_vector
-    
+
     return a - b
 
-def multi_vector(v: Vector2D,u: Vector2D):
-    return v.get_x() * u.get_x() 
-    
+def multi_vector(v,u):
+    return v.get_x() * u.get_x()
+
 def get_avg_center(vectors):
     if len(vectors) == 0:
         return Vector2D(0, 0)
@@ -110,10 +110,10 @@ def get_all_angles(a, b, c):
     return [opposite_angle(a, b, c), opposite_angle(b, c, a), opposite_angle(c, a, b)]
 
 
-def dot_product(v: Vector2D, u: Vector2D):
-    return  (v * u)  /  (v.get_vnorm() * u.get_vnorm()) 
+def dot_product(v, u):
+    return  (v * u)  /  (v.get_vnorm() * u.get_vnorm())
 
-def cross_product(v: Vector2D, u: Vector2D):
+def cross_product(v, u):
     return v.x * u.y - v.y * u.x
 
 # LineParam come nel C++
@@ -138,7 +138,7 @@ class LineParam:
             return 0.0
         return self.dir.y / self.dir.x
 
-    def make_unique_direction(self, v: Vector2D):
+    def make_unique_direction(self, v):
         norm = v.get_vnorm()
         if norm < 1e-12:
             return Vector2D(1, 0)
