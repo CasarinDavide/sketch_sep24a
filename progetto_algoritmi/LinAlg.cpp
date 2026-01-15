@@ -164,5 +164,20 @@ Vector2D LineParam::make_unique_direction(const Vector2D& v) const
     return u;
 }
 
+float Vector2D::operator*(const Vector2D& v)
+{
+    return this->get_x() * v.get_x() + this->get_y() * v.get_y(); 
+}
 
+
+float dot_product(Vector2D v,Vector2D u)
+{
+    return  (v * u)  /  (v.get_vnorm() * u.get_vnorm());
+}
+    
+float cross_product(Vector2D v,Vector2D u)
+{   
+    return v.x * u.y - v.y * u.x;
+}
+ 
 } // namespace LinAlg
