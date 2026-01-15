@@ -26,6 +26,8 @@ vector<double> get_all_angles(double a, double b, double c);
 Vector2D get_avg_center(class vector<class Vector2D> vectors);
 bool close_to(double a, double c, double e_tol);
 double sign(double value);
+float cross_product(Vector2D v,Vector2D u);
+float dot_product(Vector2D v,Vector2D u);
 
 // === Classe Vector2D ===
 class Vector2D {
@@ -41,6 +43,7 @@ public:
 
     Vector2D& operator=(const Vector2D& v);
     Vector2D operator*(const double& x);
+    float operator*(const Vector2D& v);
 
     double get_vnorm() const;
     double get_vdegree() const;

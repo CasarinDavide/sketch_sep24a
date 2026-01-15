@@ -38,6 +38,8 @@ typedef enum Wheel {
 
 
 
+
+
 class Entity {
 public:
     // Componenti hardware
@@ -106,7 +108,7 @@ private:
     // Algoritmi di clustering e filtraggio
     void filter_cluster(double min_distance);
     void aggregate_cluster();
-
+    void stop();
     
 
     // PWM e controllo differenziale
@@ -115,6 +117,9 @@ private:
     template <typename Func>
     double corrected_pwm(double base_pwm, double error, double K, bool isLeft,Func corrector);
     double normalizeAngle(double angle);
+
+    void resetPID(volatile  PID_internal *pid);
+
 
     void reset_motors_pid();
 };

@@ -27,11 +27,12 @@ void loop() {
   //e->follow(5, 10);
   
   //e->turn_at(90);
+  //e->move_to(STRAIGHT,5);
+
   //delay(10);
 
   //e->scan(16);
-  //e->move_to(STRAIGHT,0,5);
-
+  
 }
 
 //150pwm - 3 sec

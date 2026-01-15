@@ -1039,6 +1039,12 @@ boolean MeEncoderOnBoard::isTarPosReached(void) const
   return _Lock_flag;
 }
 
+
+volatile Me_Encoder_type& MeEncoderOnBoard::getEncoderType(void)
+{
+  return encode_structure;
+} 
+
 /**
  * \par Function
  *    loop

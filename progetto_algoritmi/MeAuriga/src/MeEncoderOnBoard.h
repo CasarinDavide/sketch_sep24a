@@ -705,6 +705,10 @@ public:
  */
   void loop(void);
 
+
+  volatile Me_Encoder_type& MeEncoderOnBoard::getEncoderType(void);
+
+
 private:
    volatile Me_Encoder_type encode_structure;
    boolean _Lock_flag;
